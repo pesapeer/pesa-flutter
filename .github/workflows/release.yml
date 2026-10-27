@@ -1,6 +1,6 @@
 name: Release
 
-# A tag vX.Y.Z on a maintainer-signed commit publishes pesa_checkout to pub.dev through pub.dev's
+# A signed tag vX.Y.Z publishes pesa_checkout to pub.dev through pub.dev's
 # automated publishing (OIDC from this workflow; no token). pub.dev must list
 # this repository and workflow under the package's "Automated publishing"
 # settings with tag pattern v{{version}}.
@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Verify the tagged commit is signed by a maintainer
+      - name: Verify the tag signature
         run: .github/verify-tag.sh "${GITHUB_REF_NAME}"
       - name: Check the tag matches pubspec.yaml
         run: |
