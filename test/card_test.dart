@@ -59,7 +59,9 @@ void main() {
     test('current month is valid, last month is not', () {
       expect(CardValidation.expiry('10/26', now: now), isNull);
       expect(CardValidation.expiry('09/26', now: now), 'This card has expired.');
-      expect(CardValidation.expiry('1/2', now: now), 'Use MM/YY.');
+      expect(CardValidation.expiry('1/2', now: now), 'Enter the expiry as MM/YY.');
+      expect(CardValidation.expiry('13/28', now: now), 'Enter a month from 01 to 12.');
+      expect(CardValidation.expiry('12/49', now: now), 'Check the expiry year.');
     });
   });
 

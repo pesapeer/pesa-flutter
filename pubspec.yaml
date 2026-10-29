@@ -6,7 +6,7 @@ repository: https://github.com/pesapeer/pesa-flutter
 issue_tracker: https://github.com/pesapeer/pesa-flutter/issues
 
 environment:
-  sdk: ^3.13.7
+  sdk: ^3.9.0
   flutter: '>=3.35.0'
 
 dependencies:

@@ -120,26 +120,33 @@ class CardValidation {
     if (digits.isEmpty) return 'Enter the card number.';
     if (!allDigits(digits)) return 'Digits only.';
     final brand = CardBrand.detect(digits);
-    if (digits.length < brand.minLength || digits.length > brand.maxLength) {
-      return 'Check the card number.';
+    if (digits.length < brand.minLength) return 'Card number is incomplete.';
+    if (digits.length > brand.maxLength || !luhn(digits)) {
+      return "This card number isn't valid. Check it and try again.";
     }
-    if (!luhn(digits)) return 'Check the card number.';
     return null;
   }
 
   static String? expiry(String raw, {DateTime? now}) {
-    final parsed = CardExpiry.parse(raw);
-    if (parsed == null) return 'Use MM/YY.';
-    if (!parsed.isValidAt(now ?? DateTime.now())) return 'This card has expired.';
+    final digits = raw.replaceAll(RegExp(r'\D'), '');
+    if (digits.length != 4 && digits.length != 6) return 'Enter the expiry as MM/YY.';
+    final parsed = CardExpiry.parse(digits);
+    if (parsed == null) return 'Enter a month from 01 to 12.';
+    final today = now ?? DateTime.now();
+    if (!parsed.isValidAt(today)) return 'This card has expired.';
+    if (parsed.year > today.year + 20) return 'Check the expiry year.';
     return null;
   }
 
   static String? securityCode(String raw, CardBrand brand) {
-    if (!allDigits(raw)) return 'Enter the security code.';
-    if (raw.length != brand.cvvLength && !(brand == CardBrand.unknown && (raw.length == 3 || raw.length == 4))) {
-      return 'Check the security code.';
-    }
-    return null;
+    final ok = allDigits(raw) &&
+        (raw.length == brand.cvvLength || (brand == CardBrand.unknown && (raw.length == 3 || raw.length == 4)));
+    if (ok) return null;
+    return switch (brand) {
+      CardBrand.amex => 'Enter the 4-digit code on the front.',
+      CardBrand.unknown => 'Enter the security code.',
+      _ => 'Enter the ${brand.cvvLength}-digit code on the back.',
+    };
   }
 
   static String? holderName(String raw) {

@@ -21,5 +21,5 @@ export 'src/models.dart'
 export 'src/pinning.dart' show SpkiPin;
 export 'src/secure_screen.dart' show PesaSecureScreen;
 export 'src/widgets/card_form.dart'
-    show PesaCardForm, PesaCardFormController, PesaCardTheme;
+    show PesaCardField, PesaCardForm, PesaCardFormController, PesaCardTheme;
 export 'src/widgets/pay_button.dart' show PesaPayButton;

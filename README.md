@@ -87,6 +87,44 @@ Future<void> pay() async {
 merchant name, `needsEmail`, and the latest attempt. Use it to draw the
 screen before the form.
 
+## Field style
+
+The fields are filled, 54 pt high, with the label as a placeholder and an
+icon at the start. The focused field turns white with a ring. A field in
+error turns red and shows its message on a line kept free under it, so the
+fields below never move. The number field shows the brand mark from the
+first digit.
+
+Theme them with `PesaCardTheme`:
+
+```dart
+final cardTheme = PesaCardTheme(
+  primaryColor: Colors.black,          // focus ring and pay button
+  fillColor: const Color(0xFFF2F2F6),
+  focusFillColor: Colors.white,
+  borderColor: null,                   // no border at rest
+  hintColor: const Color(0xFF9C9BA6),
+  errorColor: const Color(0xFFD92D20),
+  fieldIcon: (field) => switch (field) {
+    PesaCardField.number => const Icon(Icons.credit_card_outlined),
+    _ => null,                          // null: no icon
+  },
+);
+
+PesaCardForm(controller: form, theme: cardTheme)
+PesaPayButton(controller: form, label: 'Pay £25.00', onPressed: pay, theme: cardTheme)
+```
+
+| Field | Default |
+|---|---|
+| `primaryColor` | The theme's `onSurface` |
+| `borderRadius` | 12 |
+| `fieldSpacing` | 10, the gap between Expiry and CVV |
+| `fillColor`, `focusFillColor` | `#F2F2F6`, white |
+| `borderColor` | None |
+| `hintColor`, `errorColor` | `#9C9BA6`, `#D92D20` |
+| `fieldIcon` | Material outlined icons. Icons take their colour from the field state. |
+
 ## Error codes
 
 `PesaCheckoutException.code` is one of:
@@ -131,6 +169,8 @@ Rules:
 - The number field has no copy or cut menu and no selection handles. The
   security code is obscured and has no context menu. Suggestions and
   autocorrect are off.
+- The fields sit in an autofill group that never asks the platform to
+  save the card.
 - The SDK logs nothing. `PesaCardFormController.clear()` overwrites and
   empties the fields. Call it after every attempt.
 - The SDK posts the card once, over pinned TLS, to the checkout service
