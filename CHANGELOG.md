@@ -13,6 +13,12 @@
 - The fields never offer to save the card to autofill.
 - Haptics: a tick when the number is valid, a light tap when an error
   appears.
+- iOS: `PesaSecureScreen` no longer re-parents the window under a secure
+  text field. That trick clipped and scaled the screen on recent iOS and
+  left it black after the app was backgrounded. The app-switcher cover
+  stays; screenshots are no longer blocked on iOS.
+- `openBrowser` is documented as the place to run 3-D Secure in an auth
+  session; `challenge_cancelled` names the customer closing it.
 - `PesaCardTheme`: `fillColor`, `focusFillColor`, `borderColor`,
   `hintColor`, `errorColor`, `fieldIcon`. `borderRadius` defaults to 12,
   `fieldSpacing` (the Expiry to CVV gap) to 10. `PesaCardField` names the

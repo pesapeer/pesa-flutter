@@ -2,9 +2,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
-/// Keeps the card screen out of screenshots, screen recordings and the app
-/// switcher: FLAG_SECURE on Android, a secure overlay on iOS. Wrap the
-/// route that shows [PesaCardForm] in it.
+/// Keeps the card screen out of the app switcher on both platforms, and out
+/// of screenshots and screen recordings on Android (FLAG_SECURE). iOS has
+/// no supported way to block screenshots; the layer trick that does breaks
+/// rendering, so it is not used. Wrap the route that shows [PesaCardForm]
+/// in it.
 class PesaSecureScreen extends StatefulWidget {
   const PesaSecureScreen({super.key, required this.child});
 

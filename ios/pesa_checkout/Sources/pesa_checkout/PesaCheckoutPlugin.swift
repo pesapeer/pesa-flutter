@@ -2,13 +2,15 @@ import Flutter
 import UIKit
 
 /// The one native thing the SDK needs on iOS: keeping the card screen out
-/// of screenshots and screen recordings. iOS has no FLAG_SECURE; the
-/// established way is a secure text field layered under the window's
-/// content, which makes the system render the whole layer tree as blank in
-/// captures. On top of that the window is covered while the app is in the
-/// background so the app-switcher snapshot shows nothing.
+/// of the app switcher. The window is covered while the app is inactive so
+/// the multitasking snapshot shows nothing.
+///
+/// Screenshots are not blocked. The known way to do that, re-parenting the
+/// window's layer under a secure UITextField, draws the screen clipped or
+/// scaled on recent iOS and leaves it black after the app was backgrounded.
+/// A card form the customer cannot read is worse than one they can
+/// screenshot of their own card.
 public class PesaCheckoutPlugin: NSObject, FlutterPlugin {
-  private var secureField: UITextField?
   private var cover: UIView?
   private var observers: [NSObjectProtocol] = []
 
@@ -39,34 +41,22 @@ public class PesaCheckoutPlugin: NSObject, FlutterPlugin {
   }
 
   private func enable() {
-    guard secureField == nil, let window = window else { return }
-    let field = UITextField()
-    field.isSecureTextEntry = true
-    field.isUserInteractionEnabled = false
-    window.addSubview(field)
-    window.layer.superlayer?.addSublayer(field.layer)
-    field.layer.sublayers?.last?.addSublayer(window.layer)
-    secureField = field
-
+    guard observers.isEmpty else { return }
     let center = NotificationCenter.default
     observers.append(center.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
       self?.showCover()
     })
-    observers.append(center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-      self?.hideCover()
-    })
+    for name in [UIApplication.didBecomeActiveNotification, UIApplication.willEnterForegroundNotification] {
+      observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+        self?.hideCover()
+      })
+    }
   }
 
   private func disable() {
     hideCover()
     observers.forEach(NotificationCenter.default.removeObserver)
     observers.removeAll()
-    guard let field = secureField, let window = window else { return }
-    field.layer.sublayers?.last?.sublayers?.removeAll { $0 == window.layer }
-    window.layer.superlayer?.addSublayer(window.layer)
-    field.layer.removeFromSuperlayer()
-    field.removeFromSuperview()
-    secureField = nil
   }
 
   private func showCover() {

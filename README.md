@@ -23,9 +23,19 @@ Other platforms: [pesa-ios](https://github.com/pesapeer/pesa-ios),
 3. The app shows `PesaCardForm` inside `PesaSecureScreen`. Then it calls
    `PesaCheckout.payWithCard`.
 4. The SDK posts the card, polls the result, and opens the 3-D Secure
-   challenge in Custom Tabs or `SFSafariViewController` when the issuer
-   asks. It returns a `CheckoutResult` when the attempt is no longer
-   pending.
+   challenge in the browser when the issuer asks. It returns a
+   `CheckoutResult` when the attempt is no longer pending.
+
+   Pass `openBrowser` to `PesaCheckout` and open the challenge in an auth
+   session (`flutter_web_auth_2`, callback scheme = your app's scheme).
+   When the challenge is done the checkout sends the browser to your
+   `returnUrl`, whose page redirects to your app's custom scheme; an auth
+   session catches that and closes itself. The default, a plain in-app
+   browser, does not: iOS will not open your app from a script redirect,
+   and the customer is left on a web page. Throw
+   `PesaCheckoutException('challenge_cancelled', …)` from `openBrowser`
+   when the customer closes the session, and return `false` when it could
+   not be opened at all.
 5. **Your server trusts only the gateway.** It fulfils the order on
    `intent.state_changed` with `state: settled` (or `authorized` for
    manual capture), or on `GET /v1/intents/{reference}`. The result the
@@ -139,6 +149,8 @@ PesaPayButton(controller: form, label: 'Pay £25.00', onPressed: pay, theme: car
 | `transport` | Network error. |
 | `pin_mismatch` | The server key did not match a pin. The SDK sent no request. |
 | `timeout` | No final state before the poll limit. |
+| `challenge_unavailable` | `openBrowser` returned `false`: the 3-D Secure page could not be opened. |
+| `challenge_cancelled` | Your `openBrowser` threw it: the customer closed the 3-D Secure session. |
 
 ## Certificate pins
 
@@ -163,9 +175,9 @@ Rules:
 
 ## How the SDK keeps card data safe
 
-- `PesaSecureScreen` hides the card screen in screenshots, recordings and
-  the app switcher. It sets `FLAG_SECURE` on Android and a secure overlay
-  on iOS.
+- `PesaSecureScreen` hides the card screen in the app switcher on both
+  platforms and, on Android, in screenshots and recordings (`FLAG_SECURE`).
+  iOS has no supported way to block screenshots, so it does not try.
 - The number field has no copy or cut menu and no selection handles. The
   security code is obscured and has no context menu. Suggestions and
   autocorrect are off.
