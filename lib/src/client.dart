@@ -59,27 +59,67 @@ class PesaCheckout {
   ///
   /// [card] is cleared from this call's own copies once sent; clear the
   /// form's controllers yourself.
+  ///
+  /// [saveCard] is the payer's consent to keep the card for next time. The
+  /// checkout honours it when the session says `canSaveCard`, and keeps the
+  /// card once the charge succeeds.
   Future<CheckoutResult> payWithCard(
     String intentId,
     String clientSecret,
     CardDetails card, {
     String? email,
     bool saveCard = false,
-  }) async {
+  }) =>
+      _payCard(intentId, clientSecret, {
+        'cardNumber': card.number,
+        'expiryMonth': card.expiry.month,
+        'expiryYear': card.expiry.year,
+        'securityCode': card.securityCode,
+        'holderName': card.holderName,
+        if (saveCard) 'saveCard': true,
+      }, email);
+
+  /// Charges a card from the session's `savedCards` and follows it to an
+  /// outcome exactly as [payWithCard] does, 3-D Secure included.
+  ///
+  /// [token] is the saved card's token. Send [securityCode] when the
+  /// session's `savedCardSecurityCode` is `required`, or when the payer
+  /// typed one.
+  Future<CheckoutResult> payWithSavedCard(
+    String intentId,
+    String clientSecret,
+    String token, {
+    String? securityCode,
+    String? email,
+  }) =>
+      _payCard(intentId, clientSecret, {
+        'savedCard': {
+          'token': token,
+          if (securityCode != null && securityCode.isNotEmpty) 'securityCode': securityCode.trim(),
+        },
+      }, email);
+
+  Future<CheckoutResult> _payCard(
+    String intentId,
+    String clientSecret,
+    Map<String, Object?> card,
+    String? email,
+  ) async {
     final body = <String, Object?>{
       'clientSecret': clientSecret,
-      'cardNumber': card.number,
-      'expiryMonth': card.expiry.month,
-      'expiryYear': card.expiry.year,
-      'securityCode': card.securityCode,
-      'holderName': card.holderName,
+      ...card,
       if (email != null && email.isNotEmpty) 'email': email.trim(),
-      if (saveCard) 'saveCard': true,
     };
-    final res = await _send(() => _http.post(_url(intentId, '/card'),
-        headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
-        body: jsonEncode(body)));
-    body.clear();
+    final http.Response res;
+    try {
+      res = await _send(() => _http.post(_url(intentId, '/card'),
+          headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+          body: jsonEncode(body)));
+    } finally {
+      (card['savedCard'] as Map?)?.clear();
+      card.clear();
+      body.clear();
+    }
     final first = CheckoutSession.fromJson(_json(res));
     return _follow(intentId, clientSecret, first);
   }

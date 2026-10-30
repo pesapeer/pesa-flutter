@@ -23,6 +23,10 @@ enum CardBrand {
   final int maxLength;
   final int cvvLength;
 
+  /// The brand for a gateway code; [unknown] when there is none.
+  static CardBrand fromCode(String code) =>
+      values.firstWhere((b) => b.code == code, orElse: () => unknown);
+
   /// Detects the brand from the digits typed so far.
   static CardBrand detect(String digits) {
     if (digits.isEmpty) return unknown;

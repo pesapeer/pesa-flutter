@@ -1,6 +1,8 @@
 /// What the checkout edge says about an intent, and what the SDK reports.
 library;
 
+import 'card.dart';
+
 enum WalletKind { applePay, googlePay }
 
 class CheckoutMerchant {
@@ -56,6 +58,59 @@ class CheckoutAttempt {
   }
 }
 
+/// Whether to ask the security code again for a saved card.
+enum SavedCardSecurityCode {
+  required,
+  optional,
+  never;
+
+  /// [optional] when the value is missing or unknown: the field is shown,
+  /// and the code is sent when typed.
+  static SavedCardSecurityCode parse(Object? value) =>
+      values.firstWhere((v) => v.name == value, orElse: () => optional);
+}
+
+/// A card the payer saved on an earlier payment. The acquirer keeps the
+/// card; [token] stands for it.
+class SavedCard {
+  const SavedCard({
+    required this.token,
+    this.brand = '',
+    this.last4 = '',
+    this.expiry = '',
+    this.holderName = '',
+  });
+
+  /// Opaque. Pass it to `PesaCheckout.payWithSavedCard` only; never log it.
+  final String token;
+
+  /// The gateway's brand code: visa, mastercard, amex, unionpay.
+  final String brand;
+  final String last4;
+
+  /// MM/YYYY.
+  final String expiry;
+  final String holderName;
+
+  CardBrand get cardBrand => CardBrand.fromCode(brand);
+  CardExpiry? get parsedExpiry => CardExpiry.parse(expiry);
+
+  /// False once the card has expired. A card with an unreadable expiry is
+  /// left to the gateway to judge.
+  bool isUsableAt(DateTime now) => parsedExpiry?.isValidAt(now) ?? true;
+
+  factory SavedCard.fromJson(Map<String, dynamic> j) => SavedCard(
+        token: j['token'] as String? ?? '',
+        brand: j['brand'] as String? ?? '',
+        last4: j['last4'] as String? ?? '',
+        expiry: j['expiry'] as String? ?? '',
+        holderName: j['holderName'] as String? ?? '',
+      );
+
+  @override
+  String toString() => 'SavedCard($brand •••• $last4)';
+}
+
 /// `checkoutSession` from the contract.
 class CheckoutSession {
   const CheckoutSession({
@@ -72,6 +127,9 @@ class CheckoutSession {
     this.cancelUrl,
     this.attempt,
     this.expiresAt,
+    this.canSaveCard = false,
+    this.savedCards = const [],
+    this.savedCardSecurityCode = SavedCardSecurityCode.optional,
   });
 
   final String intentId;
@@ -89,6 +147,14 @@ class CheckoutSession {
   final String? cancelUrl;
   final CheckoutAttempt? attempt;
   final DateTime? expiresAt;
+
+  /// Whether the form may offer to keep the card. True when the intent
+  /// names a customer.
+  final bool canSaveCard;
+
+  /// The payer's cards on file, most recently used first.
+  final List<SavedCard> savedCards;
+  final SavedCardSecurityCode savedCardSecurityCode;
 
   bool get isOpen => state == 'open';
   bool get isClosed => state == 'settled' || state == 'authorized' || state == 'expired' || state == 'cancelled';
@@ -109,6 +175,14 @@ class CheckoutSession {
       cancelUrl: j['cancelUrl'] as String?,
       attempt: attempt is Map<String, dynamic> ? CheckoutAttempt.fromJson(attempt) : null,
       expiresAt: j['expiresAt'] is String ? DateTime.tryParse(j['expiresAt'] as String) : null,
+      canSaveCard: j['canSaveCard'] as bool? ?? false,
+      savedCards: (j['savedCards'] as List?)
+              ?.whereType<Map<String, dynamic>>()
+              .map(SavedCard.fromJson)
+              .where((c) => c.token.isNotEmpty)
+              .toList(growable: false) ??
+          const [],
+      savedCardSecurityCode: SavedCardSecurityCode.parse(j['savedCardSecurityCode']),
     );
   }
 }

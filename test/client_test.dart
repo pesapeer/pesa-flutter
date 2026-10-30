@@ -94,6 +94,68 @@ void main() {
     expect(edge.polls, 2);
   });
 
+  test('saveCard is sent only when asked', () async {
+    final edge = FakeEdge([session(state: 'settled', attempt: {'state': 'captured'})]);
+    await checkout(edge).payWithCard(intent, secret, card(), saveCard: true);
+    final body = jsonDecode(edge.requests.first.body) as Map;
+    expect(body['saveCard'], isTrue);
+    expect(body['cardNumber'], '4012888888881881');
+  });
+
+  test('session reads saved cards and the save offer', () async {
+    final edge = FakeEdge([
+      {
+        ...session(),
+        'canSaveCard': true,
+        'savedCards': [
+          {'token': 'tok_1', 'brand': 'visa', 'last4': '4242', 'expiry': '12/2028', 'holderName': 'A Payer'},
+        ],
+        'savedCardSecurityCode': 'required',
+      },
+    ]);
+    final s = await checkout(edge).session(intent, secret);
+    expect(s.canSaveCard, isTrue);
+    expect(s.savedCards.single.token, 'tok_1');
+    expect(s.savedCards.single.cardBrand, CardBrand.visa);
+    expect(s.savedCardSecurityCode, SavedCardSecurityCode.required);
+  });
+
+  test('saved card: posts the token and code, no card number, and follows 3DS', () async {
+    final opened = <Uri>[];
+    final edge = FakeEdge([
+      session(attempt: {'state': 'pending'}),
+      session(attempt: {'state': 'requires_3ds', 'challengeUrl': 'https://checkout.test/c/$intent/challenge?t=x'}),
+      session(state: 'settled', attempt: {'state': 'captured', 'card': {'brand': 'visa', 'last4': '4242'}}),
+    ]);
+    final r = await checkout(edge, openBrowser: (u) async {
+      opened.add(u);
+      return true;
+    }).payWithSavedCard(intent, secret, 'tok_1', securityCode: '123');
+    expect(r.isSuccess, isTrue);
+    expect(r.attempt?.last4, '4242');
+    expect(opened, hasLength(1));
+    final body = jsonDecode(edge.requests.first.body) as Map;
+    expect(body['clientSecret'], secret);
+    expect(body['savedCard'], {'token': 'tok_1', 'securityCode': '123'});
+    expect(body.containsKey('cardNumber'), isFalse);
+    expect(body.containsKey('saveCard'), isFalse);
+  });
+
+  test('saved card without a code leaves securityCode out', () async {
+    final edge = FakeEdge([session(state: 'settled', attempt: {'state': 'captured'})]);
+    await checkout(edge).payWithSavedCard(intent, secret, 'tok_1', securityCode: '');
+    final body = jsonDecode(edge.requests.first.body) as Map;
+    expect(body['savedCard'], {'token': 'tok_1'});
+  });
+
+  test('a refused saved card becomes PesaCheckoutException', () async {
+    final edge = FakeEdge([session()]);
+    await expectLater(
+      checkout(edge).payWithSavedCard(intent, 'wrong', 'tok_1'),
+      throwsA(isA<PesaCheckoutException>().having((e) => e.code, 'code', 'not_found')),
+    );
+  });
+
   test('3DS: opens the challenge once, keeps polling, ends captured', () async {
     final opened = <Uri>[];
     final edge = FakeEdge([

@@ -17,9 +17,12 @@ export 'src/models.dart'
         CheckoutSession,
         CheckoutMerchant,
         PesaCheckoutException,
+        SavedCard,
+        SavedCardSecurityCode,
         WalletKind;
 export 'src/pinning.dart' show SpkiPin;
 export 'src/secure_screen.dart' show PesaSecureScreen;
 export 'src/widgets/card_form.dart'
     show PesaCardField, PesaCardForm, PesaCardFormController, PesaCardTheme;
 export 'src/widgets/pay_button.dart' show PesaPayButton;
+export 'src/widgets/save_card_switch.dart' show PesaSaveCardSwitch;

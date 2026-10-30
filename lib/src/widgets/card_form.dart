@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../card.dart';
+import '../models.dart';
 import 'brand_mark.dart';
 
 /// The fields of [PesaCardForm].
@@ -50,6 +51,10 @@ class PesaCardTheme {
 ///
 /// Everything stays in the controllers until [clear] runs. Call it after
 /// the payment was sent, whatever the outcome.
+///
+/// After [useSession], the form offers the payer's saved cards. While one
+/// is selected, [savedCard] is set, [savedCardCvv] holds the code typed for
+/// it, and [details] is null. Pay with `PesaCheckout.payWithSavedCard`.
 class PesaCardFormController extends ChangeNotifier {
   PesaCardFormController() {
     for (final c in [number, expiry, cvv, holder, email]) {
@@ -64,21 +69,82 @@ class PesaCardFormController extends ChangeNotifier {
   final email = TextEditingController();
 
   bool _needsEmail = false;
+  bool _canSaveCard = false;
+  bool _saveCard = false;
+  List<SavedCard> _savedCards = const [];
+  SavedCardSecurityCode _savedCardSecurityCode = SavedCardSecurityCode.optional;
+  SavedCard? _savedCard;
 
-  CardBrand get brand => CardBrand.detect(_digits);
+  /// The selected card's brand while a saved card is selected, else the
+  /// brand of the number typed.
+  CardBrand get brand => _savedCard?.cardBrand ?? CardBrand.detect(_digits);
   String get _digits => number.text.replaceAll(RegExp(r'\s'), '');
 
   /// Whether every field passes its check.
   bool get isComplete =>
+      (_savedCard == null ? _typedComplete : _savedCardComplete) &&
+      (!_needsEmail || CardValidation.email(email.text) == null);
+
+  bool get _typedComplete =>
       CardValidation.number(number.text) == null &&
       CardValidation.expiry(expiry.text) == null &&
       CardValidation.securityCode(cvv.text, brand) == null &&
-      CardValidation.holderName(holder.text) == null &&
-      (!_needsEmail || CardValidation.email(email.text) == null);
+      CardValidation.holderName(holder.text) == null;
 
-  /// The card, or null when [isComplete] is false.
+  bool get _savedCardComplete => switch (_savedCardSecurityCode) {
+        SavedCardSecurityCode.required => CardValidation.securityCode(cvv.text, brand) == null,
+        SavedCardSecurityCode.optional => cvv.text.isEmpty || CardValidation.securityCode(cvv.text, brand) == null,
+        SavedCardSecurityCode.never => true,
+      };
+
+  /// Takes the saved cards and the save-card offer from [session], and
+  /// selects the first saved card that has not expired.
+  void useSession(CheckoutSession session) {
+    _canSaveCard = session.canSaveCard;
+    _savedCards = List.unmodifiable(session.savedCards);
+    _savedCardSecurityCode = session.savedCardSecurityCode;
+    selectSavedCard(_savedCards.where((c) => c.isUsableAt(DateTime.now())).firstOrNull);
+  }
+
+  List<SavedCard> get savedCards => _savedCards;
+  SavedCardSecurityCode get savedCardSecurityCode => _savedCardSecurityCode;
+
+  /// The saved card to pay with; null when the payer types a card.
+  SavedCard? get savedCard => _savedCard;
+
+  /// Selects a saved card, or the typed card when [card] is null. The
+  /// security code is emptied either way.
+  void selectSavedCard(SavedCard? card) {
+    _wipe(cvv);
+    _savedCard = card;
+    notifyListeners();
+  }
+
+  /// The security code typed for [savedCard]; null when none was typed or
+  /// none is asked.
+  String? get savedCardCvv {
+    if (_savedCard == null || _savedCardSecurityCode == SavedCardSecurityCode.never) return null;
+    final code = cvv.text.trim();
+    return code.isEmpty ? null : code;
+  }
+
+  /// Whether the payer may keep the typed card for next time.
+  bool get canSaveCard => _canSaveCard;
+
+  /// The payer's consent to keep the typed card. False while a saved card
+  /// is selected or the session does not offer it.
+  bool get saveCard => _canSaveCard && _savedCard == null && _saveCard;
+
+  set saveCard(bool value) {
+    if (value == _saveCard) return;
+    _saveCard = value;
+    notifyListeners();
+  }
+
+  /// The typed card, or null when it is incomplete or a saved card is
+  /// selected.
   CardDetails? details() {
-    if (!isComplete) return null;
+    if (_savedCard != null || !isComplete) return null;
     return CardDetails(
       number: _digits,
       expiry: CardExpiry.parse(expiry.text)!,
@@ -91,13 +157,19 @@ class PesaCardFormController extends ChangeNotifier {
 
   /// Empties every field. The number and code are overwritten before being
   /// cleared so the previous text is not left in the controller's value.
+  /// The saved card selection stays.
   void clear() {
     for (final c in [number, cvv]) {
-      c.value = TextEditingValue(text: '0' * c.text.length);
+      _wipe(c);
     }
-    for (final c in [number, expiry, cvv, holder, email]) {
+    for (final c in [expiry, holder, email]) {
       c.clear();
     }
+  }
+
+  static void _wipe(TextEditingController c) {
+    c.value = TextEditingValue(text: '0' * c.text.length);
+    c.clear();
   }
 
   @override
@@ -113,6 +185,11 @@ class PesaCardFormController extends ChangeNotifier {
 /// Native card fields: number, expiry, security code, holder, and email when
 /// the checkout needs one. Nothing here leaves the widget tree except
 /// through [PesaCardFormController.details].
+///
+/// With saved cards (see [PesaCardFormController.useSession]) the form
+/// lists them first, then "Use another card". A selected saved card shows a
+/// security code field unless the session says `never`; "Use another card"
+/// shows the card fields.
 class PesaCardForm extends StatefulWidget {
   const PesaCardForm({
     super.key,
@@ -389,130 +466,289 @@ class _PesaCardFormState extends State<PesaCardForm> {
     return AdaptiveTextSelectionToolbar.buttonItems(anchors: state.contextMenuAnchors, buttonItems: items);
   }
 
+  TextField _cvvInput(
+    TextStyle style, {
+    required String hint,
+    required ValueChanged<String> onChanged,
+    PesaCardField? next,
+  }) {
+    final brand = _c.brand;
+    return TextField(
+      controller: _c.cvv,
+      focusNode: _focus[PesaCardField.cvv],
+      enabled: widget.enabled,
+      style: style,
+      keyboardType: TextInputType.number,
+      textInputAction: next == null ? TextInputAction.done : TextInputAction.next,
+      obscureText: true,
+      autofillHints: const [AutofillHints.creditCardSecurityCode],
+      enableSuggestions: false,
+      autocorrect: false,
+      enableInteractiveSelection: false,
+      contextMenuBuilder: (_, _) => const SizedBox.shrink(),
+      inputFormatters: [
+        FilteringTextInputFormatter.digitsOnly,
+        LengthLimitingTextInputFormatter(brand == CardBrand.unknown ? 4 : brand.cvvLength),
+      ],
+      decoration: _placeholder(hint),
+      onChanged: onChanged,
+      onEditingComplete: () => _leave(PesaCardField.cvv, next),
+    );
+  }
+
+  void _onSavedCvvChanged(String text) {
+    _show(PesaCardField.cvv, null);
+    if (text.length == _c.brand.cvvLength) {
+      _leave(PesaCardField.cvv, widget.needsEmail && _c.email.text.isEmpty ? PesaCardField.email : null);
+    }
+  }
+
+  void _select(SavedCard? card) {
+    if (card?.token == _c.savedCard?.token) return;
+    HapticFeedback.selectionClick();
+    setState(() => _errors.clear());
+    _c.selectSavedCard(card);
+  }
+
+  static String _shortExpiry(SavedCard card) {
+    final e = card.parsedExpiry;
+    if (e == null) return card.expiry;
+    return '${e.month.toString().padLeft(2, '0')}/${(e.year % 100).toString().padLeft(2, '0')}';
+  }
+
+  /// One row of the saved-card list: [leading], a title and an optional
+  /// subtitle, and a mark that shows whether it is selected.
+  Widget _choice({
+    required bool selected,
+    required Widget leading,
+    required String title,
+    String? subtitle,
+    String? label,
+    VoidCallback? onTap,
+  }) {
+    final t = widget.theme;
+    final ink = t.primaryColor ?? Theme.of(context).colorScheme.onSurface;
+    final radius = BorderRadius.circular(t.borderRadius);
+    final ring = selected
+        ? BorderSide(color: ink, width: 1.5)
+        : t.borderColor == null
+            ? BorderSide.none
+            : BorderSide(color: t.borderColor!);
+    final style = const TextStyle(fontSize: 16, fontWeight: FontWeight.w500).merge(t.textStyle);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Opacity(
+        opacity: widget.enabled && onTap != null ? 1 : 0.5,
+        child: Semantics(
+          button: true,
+          selected: selected,
+          label: label,
+          excludeSemantics: label != null,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: widget.enabled ? onTap : null,
+            child: AnimatedContainer(
+              duration: _motion(150),
+              height: 60,
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              decoration: BoxDecoration(color: selected ? t.focusFillColor : t.fillColor, borderRadius: radius),
+              foregroundDecoration: BoxDecoration(borderRadius: radius, border: Border.fromBorderSide(ring)),
+              child: Row(
+                children: [
+                  SizedBox(width: 38, child: Center(child: leading)),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(title, style: style, maxLines: 1, overflow: TextOverflow.ellipsis),
+                        if (subtitle != null)
+                          Text(
+                            subtitle,
+                            style: TextStyle(fontSize: 13, height: 1.35, color: t.hintColor),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Icon(
+                    selected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+                    size: 22,
+                    color: selected ? ink : t.hintColor,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _savedCardChoice(SavedCard card) {
+    final brand = card.cardBrand;
+    final usable = card.isUsableAt(DateTime.now());
+    final expiry = _shortExpiry(card);
+    return _choice(
+      selected: _c.savedCard?.token == card.token,
+      leading: brand == CardBrand.unknown
+          ? CustomPaint(size: const Size(30, 20), painter: _CardOutlinePainter(widget.theme.hintColor))
+          : CardBrandMark(brand: brand, height: 18),
+      title: '•••• ${card.last4}',
+      subtitle: usable ? 'Expires $expiry' : 'Expired $expiry',
+      label: '${brand.label} ending ${card.last4}, ${usable ? 'expires' : 'expired'} $expiry',
+      onTap: usable ? () => _select(card) : null,
+    );
+  }
+
+  Widget _anotherCardChoice() => _choice(
+        selected: _c.savedCard == null,
+        leading: Icon(Icons.add, size: 22, color: widget.theme.primaryColor ?? Theme.of(context).colorScheme.onSurface),
+        title: 'Use another card',
+        onTap: () => _select(null),
+      );
+
+  Widget _emailField(TextStyle style) => _field(
+        PesaCardField.email,
+        TextField(
+          controller: _c.email,
+          focusNode: _focus[PesaCardField.email],
+          enabled: widget.enabled,
+          style: style,
+          keyboardType: TextInputType.emailAddress,
+          textInputAction: TextInputAction.done,
+          autofillHints: const [AutofillHints.email],
+          autocorrect: false,
+          inputFormatters: [LengthLimitingTextInputFormatter(50)],
+          decoration: _placeholder('Email for your receipt'),
+          onChanged: (_) => _show(PesaCardField.email, null),
+          onEditingComplete: () => _leave(PesaCardField.email, null),
+        ),
+      );
+
+  List<Widget> _savedCardFields(TextStyle style) {
+    final policy = _c.savedCardSecurityCode;
+    final hint = _c.brand == CardBrand.amex ? 'CID' : 'CVV';
+    return [
+      const SizedBox(height: 4),
+      if (policy != SavedCardSecurityCode.never)
+        _field(
+          PesaCardField.cvv,
+          _cvvInput(
+            style,
+            hint: policy == SavedCardSecurityCode.optional ? '$hint (optional)' : hint,
+            onChanged: _onSavedCvvChanged,
+            next: widget.needsEmail ? PesaCardField.email : null,
+          ),
+        ),
+      if (widget.needsEmail) _emailField(style),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
-    final brand = _c.brand;
     final style = const TextStyle(fontSize: 16, fontWeight: FontWeight.w500).merge(widget.theme.textStyle);
     return AutofillGroup(
       onDisposeAction: AutofillContextAction.cancel,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _field(
-            PesaCardField.number,
-            TextField(
-              controller: _c.number,
-              focusNode: _focus[PesaCardField.number],
-              enabled: widget.enabled,
-              autofocus: widget.autofocus,
-              style: style,
-              keyboardType: TextInputType.number,
-              textInputAction: TextInputAction.next,
-              autofillHints: const [AutofillHints.creditCardNumber],
-              enableSuggestions: false,
-              autocorrect: false,
-              enableInteractiveSelection: false,
-              contextMenuBuilder: _noCopyMenu,
-              inputFormatters: [_CardNumberFormatter()],
-              decoration: _placeholder('Card number'),
-              onChanged: (_) => _onNumberChanged(),
-              onEditingComplete: () => _leave(PesaCardField.number, PesaCardField.expiry),
-            ),
-            trailing: _brandSlot(),
-          ),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: _field(
-                  PesaCardField.expiry,
-                  TextField(
-                    controller: _c.expiry,
-                    focusNode: _focus[PesaCardField.expiry],
-                    enabled: widget.enabled,
-                    style: style,
-                    keyboardType: TextInputType.number,
-                    textInputAction: TextInputAction.next,
-                    autofillHints: const [AutofillHints.creditCardExpirationDate],
-                    enableSuggestions: false,
-                    autocorrect: false,
-                    enableInteractiveSelection: false,
-                    inputFormatters: [_ExpiryFormatter()],
-                    decoration: _placeholder('MM/YY'),
-                    onChanged: _onExpiryChanged,
-                    onEditingComplete: () => _leave(PesaCardField.expiry, PesaCardField.cvv),
-                  ),
-                ),
-              ),
-              SizedBox(width: widget.theme.fieldSpacing),
-              Expanded(
-                child: _field(
-                  PesaCardField.cvv,
-                  TextField(
-                    controller: _c.cvv,
-                    focusNode: _focus[PesaCardField.cvv],
-                    enabled: widget.enabled,
-                    style: style,
-                    keyboardType: TextInputType.number,
-                    textInputAction: TextInputAction.next,
-                    obscureText: true,
-                    autofillHints: const [AutofillHints.creditCardSecurityCode],
-                    enableSuggestions: false,
-                    autocorrect: false,
-                    enableInteractiveSelection: false,
-                    contextMenuBuilder: (_, _) => const SizedBox.shrink(),
-                    inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly,
-                      LengthLimitingTextInputFormatter(brand == CardBrand.unknown ? 4 : brand.cvvLength),
-                    ],
-                    decoration: _placeholder(brand == CardBrand.amex ? 'CID' : 'CVV'),
-                    onChanged: _onCvvChanged,
-                    onEditingComplete: () => _leave(PesaCardField.cvv, PesaCardField.holder),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          _field(
-            PesaCardField.holder,
-            TextField(
-              controller: _c.holder,
-              focusNode: _focus[PesaCardField.holder],
-              enabled: widget.enabled,
-              style: style,
-              textCapitalization: TextCapitalization.words,
-              textInputAction: widget.needsEmail ? TextInputAction.next : TextInputAction.done,
-              autofillHints: const [AutofillHints.creditCardName],
-              enableSuggestions: false,
-              autocorrect: false,
-              inputFormatters: [LengthLimitingTextInputFormatter(26)],
-              decoration: _placeholder('Name on card'),
-              onChanged: (_) => _show(PesaCardField.holder, null),
-              onEditingComplete: () =>
-                  _leave(PesaCardField.holder, widget.needsEmail ? PesaCardField.email : null),
-            ),
-          ),
-          if (widget.needsEmail)
-            _field(
-              PesaCardField.email,
-              TextField(
-                controller: _c.email,
-                focusNode: _focus[PesaCardField.email],
-                enabled: widget.enabled,
-                style: style,
-                keyboardType: TextInputType.emailAddress,
-                textInputAction: TextInputAction.done,
-                autofillHints: const [AutofillHints.email],
-                autocorrect: false,
-                inputFormatters: [LengthLimitingTextInputFormatter(50)],
-                decoration: _placeholder('Email for your receipt'),
-                onChanged: (_) => _show(PesaCardField.email, null),
-                onEditingComplete: () => _leave(PesaCardField.email, null),
-              ),
-            ),
+          for (final card in _c.savedCards) _savedCardChoice(card),
+          if (_c.savedCards.isNotEmpty) _anotherCardChoice(),
+          if (_c.savedCard != null) ..._savedCardFields(style) else ..._typedCardFields(style),
         ],
       ),
     );
+  }
+
+  List<Widget> _typedCardFields(TextStyle style) {
+    final brand = _c.brand;
+    return [
+      if (_c.savedCards.isNotEmpty) const SizedBox(height: 4),
+      _field(
+        PesaCardField.number,
+        TextField(
+          controller: _c.number,
+          focusNode: _focus[PesaCardField.number],
+          enabled: widget.enabled,
+          autofocus: widget.autofocus,
+          style: style,
+          keyboardType: TextInputType.number,
+          textInputAction: TextInputAction.next,
+          autofillHints: const [AutofillHints.creditCardNumber],
+          enableSuggestions: false,
+          autocorrect: false,
+          enableInteractiveSelection: false,
+          contextMenuBuilder: _noCopyMenu,
+          inputFormatters: [_CardNumberFormatter()],
+          decoration: _placeholder('Card number'),
+          onChanged: (_) => _onNumberChanged(),
+          onEditingComplete: () => _leave(PesaCardField.number, PesaCardField.expiry),
+        ),
+        trailing: _brandSlot(),
+      ),
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: _field(
+              PesaCardField.expiry,
+              TextField(
+                controller: _c.expiry,
+                focusNode: _focus[PesaCardField.expiry],
+                enabled: widget.enabled,
+                style: style,
+                keyboardType: TextInputType.number,
+                textInputAction: TextInputAction.next,
+                autofillHints: const [AutofillHints.creditCardExpirationDate],
+                enableSuggestions: false,
+                autocorrect: false,
+                enableInteractiveSelection: false,
+                inputFormatters: [_ExpiryFormatter()],
+                decoration: _placeholder('MM/YY'),
+                onChanged: _onExpiryChanged,
+                onEditingComplete: () => _leave(PesaCardField.expiry, PesaCardField.cvv),
+              ),
+            ),
+          ),
+          SizedBox(width: widget.theme.fieldSpacing),
+          Expanded(
+            child: _field(
+              PesaCardField.cvv,
+              _cvvInput(
+                style,
+                hint: brand == CardBrand.amex ? 'CID' : 'CVV',
+                onChanged: _onCvvChanged,
+                next: PesaCardField.holder,
+              ),
+            ),
+          ),
+        ],
+      ),
+      _field(
+        PesaCardField.holder,
+        TextField(
+          controller: _c.holder,
+          focusNode: _focus[PesaCardField.holder],
+          enabled: widget.enabled,
+          style: style,
+          textCapitalization: TextCapitalization.words,
+          textInputAction: widget.needsEmail ? TextInputAction.next : TextInputAction.done,
+          autofillHints: const [AutofillHints.creditCardName],
+          enableSuggestions: false,
+          autocorrect: false,
+          inputFormatters: [LengthLimitingTextInputFormatter(26)],
+          decoration: _placeholder('Name on card'),
+          onChanged: (_) => _show(PesaCardField.holder, null),
+          onEditingComplete: () =>
+              _leave(PesaCardField.holder, widget.needsEmail ? PesaCardField.email : null),
+        ),
+      ),
+      if (widget.needsEmail) _emailField(style),
+    ];
   }
 }
 

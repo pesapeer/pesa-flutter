@@ -157,4 +157,41 @@ void main() {
     expect(number.enableInteractiveSelection, isFalse);
     expect(number.enableSuggestions, isFalse);
   });
+
+  testWidgets('saved cards come first; another card shows the fields', (t) async {
+    controller.useSession(const CheckoutSession(
+      intentId: 'int_1',
+      state: 'open',
+      amount: '25.00',
+      currency: 'GBP',
+      canSaveCard: true,
+      savedCards: [SavedCard(token: 'tok_1', brand: 'visa', last4: '4242', expiry: '12/2030')],
+    ));
+    await t.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Column(children: [
+          PesaCardForm(controller: controller),
+          PesaSaveCardSwitch(controller: controller),
+          PesaPayButton(controller: controller, label: 'Pay', onPressed: () {}),
+        ]),
+      ),
+    ));
+    expect(find.text('•••• 4242'), findsOneWidget);
+    expect(find.text('Expires 12/30'), findsOneWidget);
+    expect(find.byType(TextField), findsOneWidget);
+    expect(find.byType(Switch), findsNothing);
+    expect(t.widget<FilledButton>(find.byType(FilledButton)).onPressed, isNotNull);
+
+    await t.tap(find.text('Use another card'));
+    await settle(t);
+    expect(controller.savedCard, isNull);
+    expect(find.byType(TextField), findsNWidgets(4));
+    expect(find.byType(Switch), findsOneWidget);
+    expect(t.widget<FilledButton>(find.byType(FilledButton)).onPressed, isNull);
+
+    await t.tap(find.text('•••• 4242'));
+    await settle(t);
+    expect(controller.savedCard?.token, 'tok_1');
+    expect(find.byType(TextField), findsOneWidget);
+  });
 }

@@ -1,6 +1,6 @@
 name: pesa_checkout
 description: Pesa Checkout for Flutter. Native card fields that post straight to checkout.pesa.co, 3-D Secure in the system browser, no webviews.
-version: 0.1.0
+version: 0.2.0
 homepage: https://pesa.co
 repository: https://github.com/pesapeer/pesa-flutter
 issue_tracker: https://github.com/pesapeer/pesa-flutter/issues

@@ -97,6 +97,62 @@ Future<void> pay() async {
 merchant name, `needsEmail`, and the latest attempt. Use it to draw the
 screen before the form.
 
+## Saved cards
+
+The checkout can keep a card for the next payment. The acquirer keeps
+the card. The app gets a token, the brand, the last four digits and the
+expiry. It never gets the number.
+
+Saved cards need a customer. Your server sets `customerReference` on
+the intent. Without it, the session has no saved cards and
+`canSaveCard` is false.
+
+1. Read the session. Give it to the form controller:
+
+   ```dart
+   final session = await checkout.session(intentId, clientSecret);
+   form.useSession(session);
+   ```
+
+2. `PesaCardForm` shows the saved cards first. It selects the first card
+   that has not expired. "Use another card" shows the card fields.
+3. Put `PesaSaveCardSwitch(controller: form)` under the form. It shows
+   only when `session.canSaveCard` is true and the payer types a new
+   card. Or bind your own switch to `form.saveCard`.
+4. On pay, check `form.savedCard`:
+
+   ```dart
+   final saved = form.savedCard;
+   final r = saved != null
+       ? await checkout.payWithSavedCard(intentId, clientSecret, saved.token,
+           securityCode: form.savedCardCvv, email: form.emailText)
+       : await checkout.payWithCard(intentId, clientSecret, form.details()!,
+           email: form.emailText, saveCard: form.saveCard);
+   ```
+
+   Call `form.clear()` in `finally`, as for a typed card. The selection
+   stays.
+
+`session.savedCardSecurityCode` controls the security code field:
+
+| Value | Field |
+|---|---|
+| `required` | Shown. The pay button stays off until the code is valid. |
+| `optional` | Shown. The code is sent when the payer types one. |
+| `never` | Not shown. No code is sent. |
+
+The checkout keeps the card only when the payer turns on the switch and
+the charge succeeds. A decline keeps nothing.
+
+Rules:
+
+- The token is opaque. Do not log it. `SavedCard.toString()` leaves it
+  out.
+- The SDK reads the security code once and does not keep it.
+- The checkout refuses a token that is not on file for the intent's
+  customer. The `PesaCheckoutException` has status 400 and `field`
+  `savedCard.token`. Show the card fields.
+
 ## Field style
 
 The fields are filled, 54 pt high, with the label as a placeholder and an
@@ -186,7 +242,8 @@ Rules:
 - The SDK logs nothing. `PesaCardFormController.clear()` overwrites and
   empties the fields. Call it after every attempt.
 - The SDK posts the card once, over pinned TLS, to the checkout service
-  only. It never caches the card.
+  only. It never caches the card. A saved card goes as its token, with
+  the security code when one was typed.
 
 Apple Pay and Google Pay (`payWithWallet`) arrive in the next release.
 

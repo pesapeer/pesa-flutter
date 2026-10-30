@@ -1,5 +1,22 @@
-## Unreleased
+## 0.2.0
 
+- Card on file. `CheckoutSession` has `canSaveCard`, `savedCards`
+  (`SavedCard`: token, brand, last four, expiry, holder) and
+  `savedCardSecurityCode` (`required`, `optional` or `never`).
+- `PesaCheckout.payWithSavedCard(intentId, clientSecret, token,
+  securityCode:, email:)` pays with a saved card. The outcome and 3-D
+  Secure are the same as for `payWithCard`.
+- `payWithCard(saveCard: true)` asks the checkout to keep the card once
+  the charge succeeds.
+- `PesaCardFormController.useSession(session)` makes `PesaCardForm` list
+  the saved cards first, with the first card that has not expired
+  selected, and "Use another card" after them. A selected card shows a
+  security code field unless the session says `never`. Read
+  `savedCard`, `savedCardCvv` and `saveCard` from the controller.
+  `details()` is null while a saved card is selected.
+- `PesaSaveCardSwitch`: "Save this card for next time", shown while the
+  session offers it and the payer types a new card.
+- `SavedCard.toString()` leaves the token out.
 - New field style: filled fields with the label as a placeholder, an icon
   per field, a ring on the focused field, and a reserved error line under
   each field so nothing below moves.
