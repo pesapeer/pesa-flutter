@@ -1,11 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show Locale;
 
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'card.dart';
+import 'l10n/pesa_checkout_strings.dart';
 import 'models.dart';
 import 'pinning.dart';
 
@@ -15,6 +17,9 @@ class PesaCheckout {
   /// set both current pins; an empty list turns pinning off and is for
   /// development against a local edge only. [httpClient] replaces the
   /// transport entirely (tests); pins are then not applied.
+  ///
+  /// [locale] sets the language of [PesaCheckoutException.message]. When
+  /// null, the SDK takes the session's `locale`, then the device's.
   PesaCheckout({
     String checkoutUrl = 'https://checkout.pesa.co',
     List<String> pins = const [],
@@ -23,10 +28,12 @@ class PesaCheckout {
     Duration pollInterval = const Duration(milliseconds: 1500),
     int pollTries = 60,
     Duration challengeCeiling = const Duration(minutes: 5),
+    Locale? locale,
   })  : _base = Uri.parse(checkoutUrl),
         _pollInterval = pollInterval,
         _pollTries = pollTries,
         _challengeCeiling = challengeCeiling,
+        _locale = locale,
         _openBrowser = openBrowser ?? _launch,
         _http = httpClient ??
             IOClient(pinnedHttpClient(host: Uri.parse(checkoutUrl).host, pins: pins));
@@ -37,6 +44,22 @@ class PesaCheckout {
   final int _pollTries;
   final Duration _challengeCeiling;
   final Future<bool> Function(Uri url) _openBrowser;
+  final Locale? _locale;
+  String? _sessionLocale;
+
+  PesaCheckoutStrings get _strings => PesaCheckoutStrings.pick(locale: _locale, sessionLocale: _sessionLocale);
+
+  /// An exception whose message is in the SDK's language. [detail] keeps
+  /// the original text for logs.
+  PesaCheckoutException _fail(String code, {String? detail, int? status, String? field, String? fallback}) =>
+      PesaCheckoutException(code, _strings.errorMessage(code, fallback: fallback),
+          status: status, field: field, detail: detail);
+
+  CheckoutSession _readSession(http.Response res) {
+    final s = CheckoutSession.fromJson(_json(res));
+    _sessionLocale = s.locale ?? _sessionLocale;
+    return s;
+  }
 
   static Future<bool> _launch(Uri url) =>
       launchUrl(url, mode: LaunchMode.inAppBrowserView);
@@ -50,7 +73,7 @@ class PesaCheckout {
           'Accept': 'application/json',
           'X-Client-Secret': clientSecret,
         }));
-    return CheckoutSession.fromJson(_json(res));
+    return _readSession(res);
   }
 
   /// Charges [card] against the intent and follows it to an outcome: polls
@@ -120,7 +143,7 @@ class PesaCheckout {
       card.clear();
       body.clear();
     }
-    final first = CheckoutSession.fromJson(_json(res));
+    final first = _readSession(res);
     return _follow(intentId, clientSecret, first);
   }
 
@@ -145,7 +168,7 @@ class PesaCheckout {
         challengeOpened = true;
         challengeStarted = DateTime.now();
         if (!await _openBrowser(Uri.parse(a.challengeUrl!))) {
-          throw const PesaCheckoutException('challenge_unavailable', 'The bank authentication page could not be opened.');
+          throw _fail('challenge_unavailable');
         }
       }
       tries++;
@@ -153,7 +176,7 @@ class PesaCheckout {
           ? tries >= _pollTries
           : DateTime.now().difference(challengeStarted) > _challengeCeiling;
       if (overCeiling) {
-        throw PesaCheckoutException('timeout', 'The payment is still being processed. Check with the merchant before paying again.', status: null);
+        throw _fail('timeout');
       }
       await Future<void>.delayed(_pollInterval);
       s = await session(intentId, clientSecret);
@@ -165,42 +188,43 @@ class PesaCheckout {
     try {
       res = await call().timeout(const Duration(seconds: 30));
     } on HandshakeException catch (e) {
-      throw PesaCheckoutException('pin_mismatch', e.message);
+      throw _fail('pin_mismatch', detail: e.message);
     } on SocketException catch (e) {
-      throw PesaCheckoutException('transport', e.message);
+      throw _fail('transport', detail: e.message);
     } on HttpException catch (e) {
-      throw PesaCheckoutException('transport', e.message);
+      throw _fail('transport', detail: e.message);
     } on http.ClientException catch (e) {
-      throw PesaCheckoutException('transport', e.message);
+      throw _fail('transport', detail: e.message);
     } on FormatException catch (e) {
-      throw PesaCheckoutException('transport', e.message);
+      throw _fail('transport', detail: e.message);
     }
     if (res.statusCode >= 200 && res.statusCode < 300) return res;
     throw _error(res);
   }
 
-  static Map<String, dynamic> _json(http.Response res) {
+  Map<String, dynamic> _json(http.Response res) {
+    const unexpected = 'Unexpected answer from the checkout.';
     final Object? decoded;
     try {
       decoded = jsonDecode(utf8.decode(res.bodyBytes));
     } on FormatException {
-      throw const PesaCheckoutException('transport', 'Unexpected answer from the checkout.');
+      throw _fail('transport', detail: unexpected);
     }
-    if (decoded is! Map<String, dynamic>) {
-      throw const PesaCheckoutException('transport', 'Unexpected answer from the checkout.');
-    }
+    if (decoded is! Map<String, dynamic>) throw _fail('transport', detail: unexpected);
     return decoded;
   }
 
-  static PesaCheckoutException _error(http.Response res) {
+  /// Known codes get the SDK's own text; the gateway's English sentence
+  /// is shown only for a code the SDK does not know.
+  PesaCheckoutException _error(http.Response res) {
     try {
       final j = jsonDecode(utf8.decode(res.bodyBytes));
       final e = (j is Map && j['error'] is Map) ? j['error'] as Map : (j is Map ? j : const {});
       final code = e['code'] as String? ?? 'http_${res.statusCode}';
-      final message = e['message'] as String? ?? 'The checkout refused the request.';
-      return PesaCheckoutException(code, message, status: res.statusCode, field: e['field'] as String?);
+      final message = e['message'] as String?;
+      return _fail(code, detail: message, fallback: message, status: res.statusCode, field: e['field'] as String?);
     } catch (_) {
-      return PesaCheckoutException('http_${res.statusCode}', 'The checkout refused the request.', status: res.statusCode);
+      return _fail('http_${res.statusCode}', status: res.statusCode);
     }
   }
 }

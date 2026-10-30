@@ -158,40 +158,109 @@ void main() {
     expect(number.enableSuggestions, isFalse);
   });
 
-  testWidgets('saved cards come first; another card shows the fields', (t) async {
-    controller.useSession(const CheckoutSession(
+  Future<void> pumpSaved(
+    WidgetTester t, {
+    List<SavedCard> cards = const [SavedCard(token: 'tok_1', brand: 'visa', last4: '4242', expiry: '12/2030')],
+    SavedCardSecurityCode code = SavedCardSecurityCode.never,
+  }) {
+    controller.useSession(CheckoutSession(
       intentId: 'int_1',
       state: 'open',
       amount: '25.00',
       currency: 'GBP',
       canSaveCard: true,
-      savedCards: [SavedCard(token: 'tok_1', brand: 'visa', last4: '4242', expiry: '12/2030')],
+      savedCards: cards,
+      savedCardSecurityCode: code,
     ));
-    await t.pumpWidget(MaterialApp(
-      home: Scaffold(
-        body: Column(children: [
-          PesaCardForm(controller: controller),
-          PesaSaveCardSwitch(controller: controller),
-          PesaPayButton(controller: controller, label: 'Pay', onPressed: () {}),
-        ]),
-      ),
-    ));
+    return pump(t);
+  }
+
+  testWidgets('saved cards and another card are one list', (t) async {
+    await pumpSaved(t);
     expect(find.text('•••• 4242'), findsOneWidget);
-    expect(find.text('Expires 12/30'), findsOneWidget);
-    expect(find.byType(TextField), findsOneWidget);
+    expect(find.text('12/30'), findsOneWidget);
+    expect(shownBrand(t), CardBrand.visa);
+    expect(find.byType(TextField), findsNothing);
     expect(find.byType(Switch), findsNothing);
     expect(t.widget<FilledButton>(find.byType(FilledButton)).onPressed, isNotNull);
+    expect(t.getCenter(find.text('Use another card')).dy, greaterThan(t.getCenter(find.text('•••• 4242')).dy));
 
     await t.tap(find.text('Use another card'));
     await settle(t);
     expect(controller.savedCard, isNull);
     expect(find.byType(TextField), findsNWidgets(4));
     expect(find.byType(Switch), findsOneWidget);
+    expect(t.getCenter(find.byType(Switch)).dy, greaterThan(t.getCenter(field(3)).dy));
+    expect(t.getCenter(field(0)).dy, greaterThan(t.getCenter(find.text('Use another card')).dy));
     expect(t.widget<FilledButton>(find.byType(FilledButton)).onPressed, isNull);
 
     await t.tap(find.text('•••• 4242'));
     await settle(t);
     expect(controller.savedCard?.token, 'tok_1');
+    expect(find.byType(TextField), findsNothing);
+    expect(find.byType(Switch), findsNothing);
+  });
+
+  testWidgets('the security code sits on the selected card row', (t) async {
+    await pumpSaved(
+      t,
+      cards: const [
+        SavedCard(token: 'tok_1', brand: 'visa', last4: '4242', expiry: '12/2030'),
+        SavedCard(token: 'tok_2', brand: 'mastercard', last4: '4444', expiry: '01/2031'),
+      ],
+      code: SavedCardSecurityCode.required,
+    );
     expect(find.byType(TextField), findsOneWidget);
+    final row = t.getCenter(find.text('•••• 4242')).dy;
+    expect((t.getCenter(find.byType(TextField)).dy - row).abs(), lessThan(4));
+    expect(t.getCenter(find.byType(TextField)).dx, greaterThan(t.getCenter(find.text('12/30')).dx));
+    expect(t.widget<FilledButton>(find.byType(FilledButton)).onPressed, isNull);
+
+    await t.enterText(find.byType(TextField), '123');
+    await t.pump();
+    expect(controller.savedCardCvv, '123');
+    expect(t.widget<FilledButton>(find.byType(FilledButton)).onPressed, isNotNull);
+
+    await t.tap(find.text('•••• 4444'));
+    await settle(t);
+    expect(controller.savedCard?.token, 'tok_2');
+    expect(controller.cvv.text, '');
+    expect(find.byType(TextField), findsOneWidget);
+    expect((t.getCenter(find.byType(TextField)).dy - t.getCenter(find.text('•••• 4444')).dy).abs(), lessThan(4));
+  });
+
+  testWidgets('an expired card is listed but cannot be picked', (t) async {
+    await pumpSaved(t, cards: const [
+      SavedCard(token: 'tok_old', brand: 'mastercard', last4: '0165', expiry: '01/2020'),
+      SavedCard(token: 'tok_1', brand: 'visa', last4: '4242', expiry: '12/2030'),
+    ]);
+    expect(find.text('Expired'), findsOneWidget);
+    expect(find.text('Expires 01/20'), findsNothing);
+    expect(find.text('Expires 12/30'), findsOneWidget);
+    expect(controller.savedCard?.token, 'tok_1');
+
+    await t.tap(find.text('•••• 0165'));
+    await settle(t);
+    expect(controller.savedCard?.token, 'tok_1');
+  });
+
+  testWidgets('the save switch can be left to the host', (t) async {
+    controller.useSession(const CheckoutSession(
+      intentId: 'int_1',
+      state: 'open',
+      amount: '25.00',
+      currency: 'GBP',
+      canSaveCard: true,
+    ));
+    await t.pumpWidget(MaterialApp(
+      home: Scaffold(body: PesaCardForm(controller: controller, showSaveCardSwitch: false)),
+    ));
+    expect(find.byType(Switch), findsNothing);
+
+    await t.pumpWidget(MaterialApp(home: Scaffold(body: PesaCardForm(controller: controller))));
+    expect(find.byType(Switch), findsOneWidget);
+    await t.tap(find.byType(Switch));
+    await t.pump();
+    expect(controller.saveCard, isTrue);
   });
 }

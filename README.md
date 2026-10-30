@@ -71,7 +71,7 @@ final form = PesaCardFormController();
 PesaSecureScreen(
   child: Column(children: [
     PesaCardForm(controller: form, needsEmail: session.needsEmail),
-    PesaPayButton(controller: form, label: 'Pay £25.00', busy: busy, onPressed: pay),
+    PesaPayButton(controller: form, amount: session.amount, currency: session.currency, busy: busy, onPressed: pay),
   ]),
 )
 
@@ -114,12 +114,20 @@ the intent. Without it, the session has no saved cards and
    form.useSession(session);
    ```
 
-2. `PesaCardForm` shows the saved cards first. It selects the first card
-   that has not expired. "Use another card" shows the card fields.
-3. Put `PesaSaveCardSwitch(controller: form)` under the form. It shows
-   only when `session.canSaveCard` is true and the payer types a new
-   card. Or bind your own switch to `form.saveCard`.
-4. On pay, check `form.savedCard`:
+2. `PesaCardForm` shows one list in a single rounded box, with hairlines
+   between rows: a row per saved card (brand mark, `•••• last4`, expiry,
+   radio), then "Use another card". It selects the first card that has
+   not expired. Expired cards stay listed, greyed, with "Expired", and
+   cannot be picked. "Use another card" opens the card fields under it,
+   in the same box.
+3. "Save this card for next time" is the last line of those fields. It
+   shows only when `session.canSaveCard` is true. Draw it with your own
+   switch through `PesaCardTheme.saveCardSwitch`, or pass
+   `showSaveCardSwitch: false` and place `PesaSaveCardSwitch` (or a switch
+   bound to `form.saveCard`) yourself.
+4. Name the card on the pay button while one is selected, for instance
+   "Pay £25.00 with •••• 4242" from `form.savedCard?.last4`.
+5. On pay, check `form.savedCard`:
 
    ```dart
    final saved = form.savedCard;
@@ -137,9 +145,9 @@ the intent. Without it, the session has no saved cards and
 
 | Value | Field |
 |---|---|
-| `required` | Shown. The pay button stays off until the code is valid. |
-| `optional` | Shown. The code is sent when the payer types one. |
-| `never` | Not shown. No code is sent. |
+| `required` | Shown on the selected card's row. The pay button stays off until the code is valid. |
+| `optional` | Shown on the selected card's row. The code is sent when the payer types one. |
+| `never` | Not shown. No code is sent. The default when the session has no value. |
 
 The checkout keeps the card only when the payer turns on the switch and
 the charge succeeds. A decline keeps nothing.
@@ -149,9 +157,51 @@ Rules:
 - The token is opaque. Do not log it. `SavedCard.toString()` leaves it
   out.
 - The SDK reads the security code once and does not keep it.
+- `SavedCard.brand` is read in any case and spelling (`VISA`,
+  `MasterCard`, `MC`, `american_express`). An unknown brand shows a plain
+  card outline.
 - The checkout refuses a token that is not on file for the intent's
   customer. The `PesaCheckoutException` has status 400 and `field`
   `savedCard.token`. Show the card fields.
+
+## Language
+
+The SDK shows its text in English, French, Canadian French and
+Simplified Chinese. The tags are `en`, `fr`, `fr-CA` and `zh-Hans`.
+
+The SDK uses the first language it supports from this list:
+
+1. The `locale` you pass to the widget or the controller.
+2. The `locale` of the session. The merchant sets it on the intent.
+   Call `form.useSession(session)` to use it.
+3. The app's locale, then the device locale.
+4. English.
+
+The SDK maps close tags. `fr-BE` gives `fr`. `zh`, `zh-CN` and
+`zh-Hant` give `zh-Hans`. Other languages give English.
+
+```dart
+final form = PesaCardFormController(locale: const Locale('fr', 'CA'));
+PesaCardForm(controller: form)                                   // or: locale: on the widget
+PesaPayButton(controller: form, amount: '25.00', currency: 'GBP', onPressed: pay)
+```
+
+- `fr-CA` uses the `fr` text. It changes only the Québec words, such as
+  "Courriel".
+- The pay button writes the amount for the language: `£25.00` in `en`
+  and `zh-Hans`, `25,00 £` in `fr` and `fr-CA`. Pass `label` to set your
+  own text.
+- `PesaCheckout(locale: …)` sets the language of
+  `PesaCheckoutException.message`. Without it, the client uses the
+  session's `locale`, then the device locale. `code` does not change
+  with the language. Switch on `code`. `detail` has the gateway's
+  English text for your logs.
+- `CardValidation` takes `strings:`, for instance
+  `CardValidation.number(text, strings: PesaCheckoutStrings.fr)`.
+- To use your own error screen in the payer's language, call
+  `PesaCheckoutStrings.of(context).errorMessage(e.code)`.
+- Optional: add `PesaCheckoutLocalizations.delegate` to
+  `localizationsDelegates`. The widgets work without it.
 
 ## Field style
 
@@ -178,7 +228,7 @@ final cardTheme = PesaCardTheme(
 );
 
 PesaCardForm(controller: form, theme: cardTheme)
-PesaPayButton(controller: form, label: 'Pay £25.00', onPressed: pay, theme: cardTheme)
+PesaPayButton(controller: form, amount: '25.00', currency: 'GBP', onPressed: pay, theme: cardTheme)
 ```
 
 | Field | Default |
@@ -190,6 +240,12 @@ PesaPayButton(controller: form, label: 'Pay £25.00', onPressed: pay, theme: car
 | `borderColor` | None |
 | `hintColor`, `errorColor` | `#9C9BA6`, `#D92D20` |
 | `fieldIcon` | Material outlined icons. Icons take their colour from the field state. |
+| `listRadius` | `borderRadius`. The corners of the saved-card list. |
+| `saveCardSwitch` | An adaptive Material switch. |
+
+The saved-card list takes `focusFillColor` as its surface and
+`borderColor` for its outline and the hairlines between rows. Brand marks
+sit on a small white chip so they read on a dark surface too.
 
 ## Error codes
 

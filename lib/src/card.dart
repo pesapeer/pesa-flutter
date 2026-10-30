@@ -1,6 +1,8 @@
 /// Card details and the checks the form runs before anything is sent.
 library;
 
+import 'l10n/pesa_checkout_strings.dart';
+
 enum CardBrand {
   visa('visa', 'Visa', 16, 16, 3),
   mastercard('mastercard', 'Mastercard', 16, 16, 3),
@@ -23,9 +25,17 @@ enum CardBrand {
   final int maxLength;
   final int cvvLength;
 
-  /// The brand for a gateway code; [unknown] when there is none.
+  /// The brand for a gateway code, in any case and with or without
+  /// separators ("VISA", "Mastercard", "MC", "american_express"); [unknown]
+  /// when there is none.
   static CardBrand fromCode(String code) =>
-      values.firstWhere((b) => b.code == code, orElse: () => unknown);
+      switch (code.toLowerCase().replaceAll(RegExp(r'[\s_-]'), '')) {
+        'visa' => visa,
+        'mastercard' || 'mc' => mastercard,
+        'amex' || 'americanexpress' => amex,
+        'unionpay' || 'cup' || 'chinaunionpay' => unionpay,
+        _ => unknown,
+      };
 
   /// Detects the brand from the digits typed so far.
   static CardBrand detect(String digits) {
@@ -118,50 +128,53 @@ class CardValidation {
     return sum % 10 == 0;
   }
 
-  /// Null when the number is acceptable, else a message for the field.
-  static String? number(String raw) {
+  /// Null when the number is acceptable, else a message for the field in
+  /// the language of [strings] (English when null). The same holds for the
+  /// other checks.
+  static String? number(String raw, {PesaCheckoutStrings? strings}) {
+    final s = strings ?? PesaCheckoutStrings.en;
     final digits = raw.replaceAll(RegExp(r'\s'), '');
-    if (digits.isEmpty) return 'Enter the card number.';
-    if (!allDigits(digits)) return 'Digits only.';
+    if (digits.isEmpty) return s.numberEmpty;
+    if (!allDigits(digits)) return s.digitsOnly;
     final brand = CardBrand.detect(digits);
-    if (digits.length < brand.minLength) return 'Card number is incomplete.';
-    if (digits.length > brand.maxLength || !luhn(digits)) {
-      return "This card number isn't valid. Check it and try again.";
-    }
+    if (digits.length < brand.minLength) return s.numberIncomplete;
+    if (digits.length > brand.maxLength || !luhn(digits)) return s.numberInvalid;
     return null;
   }
 
-  static String? expiry(String raw, {DateTime? now}) {
+  static String? expiry(String raw, {DateTime? now, PesaCheckoutStrings? strings}) {
+    final s = strings ?? PesaCheckoutStrings.en;
     final digits = raw.replaceAll(RegExp(r'\D'), '');
-    if (digits.length != 4 && digits.length != 6) return 'Enter the expiry as MM/YY.';
+    if (digits.length != 4 && digits.length != 6) return s.expiryFormat;
     final parsed = CardExpiry.parse(digits);
-    if (parsed == null) return 'Enter a month from 01 to 12.';
+    if (parsed == null) return s.expiryMonth;
     final today = now ?? DateTime.now();
-    if (!parsed.isValidAt(today)) return 'This card has expired.';
-    if (parsed.year > today.year + 20) return 'Check the expiry year.';
+    if (!parsed.isValidAt(today)) return s.cardExpired;
+    if (parsed.year > today.year + 20) return s.expiryYear;
     return null;
   }
 
-  static String? securityCode(String raw, CardBrand brand) {
+  static String? securityCode(String raw, CardBrand brand, {PesaCheckoutStrings? strings}) {
+    final s = strings ?? PesaCheckoutStrings.en;
     final ok = allDigits(raw) &&
         (raw.length == brand.cvvLength || (brand == CardBrand.unknown && (raw.length == 3 || raw.length == 4)));
     if (ok) return null;
     return switch (brand) {
-      CardBrand.amex => 'Enter the 4-digit code on the front.',
-      CardBrand.unknown => 'Enter the security code.',
-      _ => 'Enter the ${brand.cvvLength}-digit code on the back.',
+      CardBrand.amex => s.codeOnFront(brand.cvvLength),
+      CardBrand.unknown => s.codeEmpty,
+      _ => s.codeOnBack(brand.cvvLength),
     };
   }
 
-  static String? holderName(String raw) {
+  static String? holderName(String raw, {PesaCheckoutStrings? strings}) {
     final name = raw.trim();
-    if (name.length < 3 || name.length > 26) return 'Enter the name as printed, 3 to 26 characters.';
+    if (name.length < 3 || name.length > 26) return (strings ?? PesaCheckoutStrings.en).holderNameInvalid;
     return null;
   }
 
-  static String? email(String raw) {
+  static String? email(String raw, {PesaCheckoutStrings? strings}) {
     final e = raw.trim();
-    if (e.isEmpty || !e.contains('@') || e.length > 50) return 'Enter an email address.';
+    if (e.isEmpty || !e.contains('@') || e.length > 50) return (strings ?? PesaCheckoutStrings.en).emailInvalid;
     return null;
   }
 

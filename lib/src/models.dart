@@ -64,10 +64,10 @@ enum SavedCardSecurityCode {
   optional,
   never;
 
-  /// [optional] when the value is missing or unknown: the field is shown,
-  /// and the code is sent when typed.
+  /// [never] when the value is missing or unknown: no field is shown and
+  /// no code is sent.
   static SavedCardSecurityCode parse(Object? value) =>
-      values.firstWhere((v) => v.name == value, orElse: () => optional);
+      values.firstWhere((v) => v.name == value, orElse: () => never);
 }
 
 /// A card the payer saved on an earlier payment. The acquirer keeps the
@@ -84,7 +84,8 @@ class SavedCard {
   /// Opaque. Pass it to `PesaCheckout.payWithSavedCard` only; never log it.
   final String token;
 
-  /// The gateway's brand code: visa, mastercard, amex, unionpay.
+  /// The gateway's brand code: visa, mastercard, amex, unionpay. Read in
+  /// any case; see [CardBrand.fromCode].
   final String brand;
   final String last4;
 
@@ -129,7 +130,8 @@ class CheckoutSession {
     this.expiresAt,
     this.canSaveCard = false,
     this.savedCards = const [],
-    this.savedCardSecurityCode = SavedCardSecurityCode.optional,
+    this.savedCardSecurityCode = SavedCardSecurityCode.never,
+    this.locale,
   });
 
   final String intentId;
@@ -155,6 +157,10 @@ class CheckoutSession {
   /// The payer's cards on file, most recently used first.
   final List<SavedCard> savedCards;
   final SavedCardSecurityCode savedCardSecurityCode;
+
+  /// The language the merchant set on the intent: en, fr, fr-CA or
+  /// zh-Hans. Null when not set; the SDK then follows the app and device.
+  final String? locale;
 
   bool get isOpen => state == 'open';
   bool get isClosed => state == 'settled' || state == 'authorized' || state == 'expired' || state == 'cancelled';
@@ -183,6 +189,7 @@ class CheckoutSession {
               .toList(growable: false) ??
           const [],
       savedCardSecurityCode: SavedCardSecurityCode.parse(j['savedCardSecurityCode']),
+      locale: j['locale'] as String?,
     );
   }
 }
@@ -207,15 +214,24 @@ class CheckoutResult {
 
 /// A refusal from the checkout edge or the gateway, or a transport failure.
 class PesaCheckoutException implements Exception {
-  const PesaCheckoutException(this.code, this.message, {this.status, this.field});
+  const PesaCheckoutException(this.code, this.message, {this.status, this.field, this.detail});
 
   /// The gateway's error code (invalid_request, not_found, card_state,
   /// intent_closed, rate_limited…), or transport / pin_mismatch / timeout.
+  /// Stable across languages: switch on it.
   final String code;
+
+  /// Safe to show the payer, in the SDK's language (see
+  /// `PesaCheckoutStrings`).
   final String message;
   final int? status;
   final String? field;
 
+  /// For logs, not the payer: the gateway's English sentence or the
+  /// transport error. Null when there is none.
+  final String? detail;
+
   @override
-  String toString() => 'PesaCheckoutException($code${status == null ? '' : ', $status'}): $message';
+  String toString() =>
+      'PesaCheckoutException($code${status == null ? '' : ', $status'}): $message${detail == null ? '' : ' ($detail)'}';
 }

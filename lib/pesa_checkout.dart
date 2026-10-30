@@ -10,6 +10,7 @@ library;
 
 export 'src/card.dart' show CardBrand, CardDetails, CardExpiry, CardValidation;
 export 'src/client.dart' show PesaCheckout;
+export 'src/l10n/pesa_checkout_strings.dart' show PesaCheckoutLocalizations, PesaCheckoutStrings;
 export 'src/models.dart'
     show
         CheckoutAttempt,

@@ -57,6 +57,7 @@ Layout:
 | `lib/src/card.dart` | Card validation, `CardDetails`. |
 | `lib/src/pinning.dart` | SPKI pin check on the TLS socket. |
 | `lib/src/secure_screen.dart` | `PesaSecureScreen`. |
+| `lib/src/l10n/` | `PesaCheckoutStrings`: one map per language. Add every new user-visible string to en, fr and zh-Hans; fr-CA lists only its Québec overrides. |
 | `lib/src/widgets/` | `PesaCardForm`, `PesaPayButton`. |
 | `android/`, `ios/` | Platform plugin code for the secure screen. |
 | `example/` | Example app. |

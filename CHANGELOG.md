@@ -1,3 +1,46 @@
+## 0.3.0
+
+- Language: the SDK shows its text in `en`, `fr`, `fr-CA` and `zh-Hans`.
+  It takes the `locale` the host passes, then the session's `locale`,
+  then the app's and the device's locale, then English. Close tags are
+  mapped (`fr-BE` to `fr`, `zh` and `zh-Hant` to `zh-Hans`).
+- `PesaCheckoutStrings`: every user-visible string, with `of(context)`,
+  `resolve(tag)`, `errorMessage(code)` and `money(amount, currency)`.
+  `PesaCheckoutLocalizations.delegate` for `localizationsDelegates`
+  (optional).
+- `locale` on `PesaCardFormController`, `PesaCardForm`, `PesaPayButton`,
+  `PesaSaveCardSwitch` and `PesaCheckout`.
+- `CheckoutSession.locale`.
+- `PesaPayButton` takes `amount` and `currency` and writes "Pay £25.00"
+  in the payer's language. `label` is now optional and still wins.
+- `PesaSaveCardSwitch.label` is now optional.
+- `CardValidation` methods take `strings:`. English is the default.
+- `PesaCheckoutException.message` is the SDK's own text for the code, in
+  the payer's language. `code` is unchanged. The gateway's sentence (or
+  the transport error) moves to the new `detail` field, and is the
+  message only for a code the SDK does not know.
+
+- The saved-card picker is one list in a single rounded box, with
+  hairlines between rows. Each saved card is one row: brand mark on a
+  white chip, `•••• last4`, the expiry, and a radio. The selected row
+  fills its radio; no row gets a box of its own.
+- The security code for a saved card sits on the selected card's row,
+  when the session says `required` or `optional`.
+- `savedCardSecurityCode` defaults to `never` when the session has no
+  value or one the SDK does not know (was `optional`).
+- Expired saved cards stay listed, greyed, with "Expired", and cannot be
+  picked.
+- "Use another card" is the list's last row. It opens the card fields
+  under it, in the same box.
+- `PesaCardForm` shows "Save this card for next time" as the last line of
+  the card fields. Hosts that put `PesaSaveCardSwitch` under the form
+  should remove it, or pass `showSaveCardSwitch: false`.
+- `PesaCardTheme.listRadius` and `PesaCardTheme.saveCardSwitch` (draw the
+  switch with the app's own).
+- `CardBrand.fromCode` reads brand codes in any case and spelling (`VISA`,
+  `MasterCard`, `MC`, `american_express`, `UnionPay`). Saved cards whose
+  gateway brand was not exactly lowercase showed a generic card outline.
+
 ## 0.2.0
 
 - Card on file. `CheckoutSession` has `canSaveCard`, `savedCards`

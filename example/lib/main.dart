@@ -123,7 +123,7 @@ class _PayPageState extends State<PayPage> {
                 const SizedBox(height: 20),
                 PesaCardForm(controller: _form, needsEmail: s.needsEmail, autofocus: true),
                 const SizedBox(height: 20),
-                PesaPayButton(controller: _form, label: 'Pay ${s.amount} ${s.currency}', busy: _busy, onPressed: _pay),
+                PesaPayButton(controller: _form, amount: s.amount, currency: s.currency, busy: _busy, onPressed: _pay),
                 if (_error != null)
                   Padding(padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
               ]),

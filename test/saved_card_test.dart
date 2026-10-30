@@ -26,7 +26,7 @@ void main() {
       final s = CheckoutSession.fromJson({'intentId': 'int_1', 'state': 'open'});
       expect(s.canSaveCard, isFalse);
       expect(s.savedCards, isEmpty);
-      expect(s.savedCardSecurityCode, SavedCardSecurityCode.optional);
+      expect(s.savedCardSecurityCode, SavedCardSecurityCode.never);
     });
 
     test('saved cards without a token are dropped', () {
@@ -49,14 +49,28 @@ void main() {
       expect(SavedCardSecurityCode.parse('required'), SavedCardSecurityCode.required);
       expect(SavedCardSecurityCode.parse('optional'), SavedCardSecurityCode.optional);
       expect(SavedCardSecurityCode.parse('never'), SavedCardSecurityCode.never);
-      expect(SavedCardSecurityCode.parse('sometimes'), SavedCardSecurityCode.optional);
-      expect(SavedCardSecurityCode.parse(null), SavedCardSecurityCode.optional);
+      expect(SavedCardSecurityCode.parse('sometimes'), SavedCardSecurityCode.never);
+      expect(SavedCardSecurityCode.parse(null), SavedCardSecurityCode.never);
     });
 
     test('brand from the gateway code', () {
       expect(CardBrand.fromCode('amex'), CardBrand.amex);
       expect(CardBrand.fromCode('unionpay'), CardBrand.unionpay);
       expect(CardBrand.fromCode('diners'), CardBrand.unknown);
+      expect(CardBrand.fromCode(''), CardBrand.unknown);
+    });
+
+    test('brand codes in any case or spelling', () {
+      expect(CardBrand.fromCode('VISA'), CardBrand.visa);
+      expect(CardBrand.fromCode(' Visa '), CardBrand.visa);
+      expect(CardBrand.fromCode('MASTERCARD'), CardBrand.mastercard);
+      expect(CardBrand.fromCode('MasterCard'), CardBrand.mastercard);
+      expect(CardBrand.fromCode('MC'), CardBrand.mastercard);
+      expect(CardBrand.fromCode('AMERICAN_EXPRESS'), CardBrand.amex);
+      expect(CardBrand.fromCode('American Express'), CardBrand.amex);
+      expect(CardBrand.fromCode('UnionPay'), CardBrand.unionpay);
+      expect(CardBrand.fromCode('union-pay'), CardBrand.unionpay);
+      expect(const SavedCard(token: 't', brand: 'VISA').cardBrand, CardBrand.visa);
     });
 
     test('expired and unreadable expiries', () {
@@ -84,6 +98,19 @@ void main() {
       expect(form.savedCard?.token, 'tok_amex');
       expect(form.brand, CardBrand.amex);
       expect(form.details(), isNull);
+    });
+
+    test('a session without a rule asks no code', () {
+      form.useSession(const CheckoutSession(
+        intentId: 'int_1',
+        state: 'open',
+        amount: '1.00',
+        currency: 'GBP',
+        savedCards: [visa],
+      ));
+      expect(form.savedCardSecurityCode, SavedCardSecurityCode.never);
+      expect(form.isComplete, isTrue);
+      expect(form.savedCardCvv, isNull);
     });
 
     test('no usable card leaves the typed card selected', () {
