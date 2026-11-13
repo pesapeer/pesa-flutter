@@ -229,7 +229,7 @@ void main() {
   testWidgets('saved cards and another card are one list', (t) async {
     await pumpSaved(t);
     expect(find.text('•••• 4242'), findsOneWidget);
-    expect(find.text('12/30'), findsOneWidget);
+    expect(find.text('Expires 12/30'), findsOneWidget);
     expect(shownBrand(t), CardBrand.visa);
     expect(find.byType(TextField), findsNothing);
     expect(find.byType(Switch), findsNothing);
@@ -262,9 +262,9 @@ void main() {
       code: SavedCardSecurityCode.required,
     );
     expect(find.byType(TextField), findsOneWidget);
-    final row = t.getCenter(find.text('•••• 4242')).dy;
+    final row = (t.getCenter(find.text('•••• 4242')).dy + t.getCenter(find.text('Expires 12/30')).dy) / 2;
     expect((t.getCenter(find.byType(TextField)).dy - row).abs(), lessThan(4));
-    expect(t.getCenter(find.byType(TextField)).dx, greaterThan(t.getCenter(find.text('12/30')).dx));
+    expect(t.getCenter(find.byType(TextField)).dx, greaterThan(t.getCenter(find.text('Expires 12/30')).dx));
     expect(t.widget<FilledButton>(find.byType(FilledButton)).onPressed, isNull);
 
     await t.enterText(find.byType(TextField), '123');
@@ -277,7 +277,8 @@ void main() {
     expect(controller.savedCard?.token, 'tok_2');
     expect(controller.cvv.text, '');
     expect(find.byType(TextField), findsOneWidget);
-    expect((t.getCenter(find.byType(TextField)).dy - t.getCenter(find.text('•••• 4444')).dy).abs(), lessThan(4));
+    final next = (t.getCenter(find.text('•••• 4444')).dy + t.getCenter(find.text('Expires 01/31')).dy) / 2;
+    expect((t.getCenter(find.byType(TextField)).dy - next).abs(), lessThan(4));
   });
 
   testWidgets('an expired card is listed but cannot be picked', (t) async {

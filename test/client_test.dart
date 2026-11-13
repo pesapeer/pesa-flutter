@@ -263,7 +263,10 @@ void main() {
   });
 
   test('transport failure becomes a transport exception', () async {
-    final c = PesaCheckout(httpClient: MockClient((_) async => throw http.ClientException('boom')));
+    final c = PesaCheckout(
+      surface: PesaChallengeSurface.browser,
+      httpClient: MockClient((_) async => throw http.ClientException('boom')),
+    );
     await expectLater(c.session(intent, secret), throwsA(isA<PesaCheckoutException>().having((e) => e.code, 'code', 'transport')));
   });
 
@@ -293,6 +296,10 @@ void main() {
   });
 
   test('wallets are not available yet', () {
-    expect(() => PesaCheckout(httpClient: MockClient((_) async => http.Response('', 404))).payWithWallet(intent, secret, WalletKind.applePay), throwsUnimplementedError);
+    final c = PesaCheckout(
+      surface: PesaChallengeSurface.browser,
+      httpClient: MockClient((_) async => http.Response('', 404)),
+    );
+    expect(() => c.payWithWallet(intent, secret, WalletKind.applePay), throwsUnimplementedError);
   });
 }

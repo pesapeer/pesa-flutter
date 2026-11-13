@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+// ignore: deprecated_member_use
+import 'package:flutter/cupertino.dart' show CupertinoLocalizations, DefaultCupertinoLocalizations;
 // material_ui needs Flutter 3.47; this package supports 3.35.
 // ignore: deprecated_member_use
 import 'package:flutter/material.dart';
@@ -140,6 +142,7 @@ void main() {
     test('the client localises the message and keeps the code and the gateway text', () async {
       final c = PesaCheckout(
         locale: const Locale('fr'),
+        surface: PesaChallengeSurface.browser,
         httpClient: MockClient((_) async =>
             http.Response(jsonEncode({'error': {'code': 'not_found', 'message': 'This payment link is not valid.'}}), 404)),
       );
@@ -155,6 +158,7 @@ void main() {
     test('the client follows the session locale', () async {
       var calls = 0;
       final c = PesaCheckout(
+        surface: PesaChallengeSurface.browser,
         httpClient: MockClient((_) async {
           if (calls++ == 0) {
             return http.Response(jsonEncode({'intentId': 'int_1', 'state': 'open', 'locale': 'zh-Hans'}), 200);
@@ -222,7 +226,12 @@ void main() {
       await t.pumpWidget(MaterialApp(
         locale: const Locale('fr'),
         supportedLocales: const [Locale('en'), Locale('fr')],
-        localizationsDelegates: const [PesaCheckoutLocalizations.delegate, _AnyMaterial(), _AnyWidgets()],
+        localizationsDelegates: const [
+          PesaCheckoutLocalizations.delegate,
+          _AnyMaterial(),
+          _AnyCupertino(),
+          _AnyWidgets(),
+        ],
         home: Scaffold(body: PesaCardForm(controller: form)),
       ));
       expect(find.text('Numéro de carte'), findsOneWidget);
@@ -244,6 +253,19 @@ class _AnyMaterial extends LocalizationsDelegate<MaterialLocalizations> {
 
   @override
   bool shouldReload(_AnyMaterial old) => false;
+}
+
+class _AnyCupertino extends LocalizationsDelegate<CupertinoLocalizations> {
+  const _AnyCupertino();
+
+  @override
+  bool isSupported(Locale locale) => true;
+
+  @override
+  Future<CupertinoLocalizations> load(Locale locale) => DefaultCupertinoLocalizations.load(locale);
+
+  @override
+  bool shouldReload(_AnyCupertino old) => false;
 }
 
 class _AnyWidgets extends LocalizationsDelegate<WidgetsLocalizations> {

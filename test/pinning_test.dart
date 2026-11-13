@@ -68,6 +68,7 @@ void main() {
       final c = PesaCheckout(
         checkoutUrl: 'https://127.0.0.1:${server.port}',
         httpClient: null,
+        surface: PesaChallengeSurface.browser,
         pins: const ['AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='],
       );
       // The default transport uses the system roots, which do not include the
