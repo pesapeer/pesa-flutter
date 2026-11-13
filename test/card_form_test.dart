@@ -1,7 +1,8 @@
+// material_ui needs Flutter 3.47; this package supports 3.35.
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pesa_checkout/pesa_checkout.dart';
-import 'package:pesa_checkout/src/widgets/brand_mark.dart';
 
 void main() {
   late PesaCardFormController controller;

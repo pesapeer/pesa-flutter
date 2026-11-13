@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+// material_ui needs Flutter 3.47; this package supports 3.35.
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;

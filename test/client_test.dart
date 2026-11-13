@@ -156,7 +156,7 @@ void main() {
     final r = await checkout(edge, challenge: presenter).payWithSavedCard(intent, secret, 'tok_1', securityCode: '123');
     expect(r.isSuccess, isTrue);
     expect(r.attempt?.last4, '4242');
-    expect(opened, hasLength(1));
+    expect(presenter.opened, hasLength(1));
     final body = jsonDecode(edge.requests.first.body) as Map;
     expect(body['clientSecret'], secret);
     expect(body['savedCard'], {'token': 'tok_1', 'securityCode': '123'});
