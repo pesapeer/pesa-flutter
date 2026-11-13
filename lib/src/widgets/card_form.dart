@@ -26,6 +26,13 @@ class PesaCardTheme {
     this.fieldIcon,
     this.listRadius,
     this.saveCardSwitch,
+    this.separateRows = false,
+    this.rowSpacing = 8,
+    this.selectedRowBorder,
+    this.brandChip = true,
+    this.anotherCardFirst = false,
+    this.anotherCardSubtitle,
+    this.anotherCardLeading,
   });
 
   /// The focus ring and the pay button. The theme's onSurface when null.
@@ -60,6 +67,28 @@ class PesaCardTheme {
   /// adaptive Material switch when null. [onChanged] is null while the
   /// form is disabled.
   final Widget Function(bool value, ValueChanged<bool>? onChanged)? saveCardSwitch;
+
+  /// The saved-card list as a box per row, [rowSpacing] apart, with the
+  /// card fields in a box of their own under "Use another card". One box
+  /// with hairlines between the rows when false.
+  final bool separateRows;
+  final double rowSpacing;
+
+  /// The outline of the selected row while [separateRows] is on; the row
+  /// keeps [borderColor] when null.
+  final BorderSide? selectedRowBorder;
+
+  /// A saved card's brand on a white chip. The bare mark when false.
+  final bool brandChip;
+
+  /// "Use another card" above the saved cards rather than under them.
+  final bool anotherCardFirst;
+
+  /// A second line under "Use another card"; none when null.
+  final String? anotherCardSubtitle;
+
+  /// The mark at the start of "Use another card"; a plus when null.
+  final Widget? anotherCardLeading;
 }
 
 /// Holds what the cardholder typed and reports whether it is complete.
@@ -588,6 +617,7 @@ class _PesaCardFormState extends State<PesaCardForm> {
     if (brand == CardBrand.unknown) {
       return CustomPaint(size: const Size(30, 20), painter: _CardOutlinePainter(widget.theme.hintColor));
     }
+    if (!widget.theme.brandChip) return CardBrandMark(brand: brand, height: 18);
     return Container(
       width: 40,
       height: 26,
@@ -749,16 +779,33 @@ class _PesaCardFormState extends State<PesaCardForm> {
 
   Widget _anotherCardRow(TextStyle style) {
     final selected = _c.savedCard == null;
+    final subtitle = widget.theme.anotherCardSubtitle;
+    final title = Text(
+      _s.useAnotherCard,
+      style: selected ? style.copyWith(fontWeight: FontWeight.w600) : style,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    );
     return _row(
       selected: selected,
-      leading: Icon(Icons.add, size: 22, color: _ink),
-      title: Text(
-        _s.useAnotherCard,
-        style: selected ? style.copyWith(fontWeight: FontWeight.w600) : style,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      label: _s.useAnotherCard,
+      leading: widget.theme.anotherCardLeading ?? Icon(Icons.add, size: 22, color: _ink),
+      title: subtitle == null
+          ? title
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                title,
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: TextStyle(fontSize: 13, color: widget.theme.hintColor),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+      label: subtitle == null ? _s.useAnotherCard : '${_s.useAnotherCard}, $subtitle',
       onTap: () => _select(null),
     );
   }
@@ -782,54 +829,85 @@ class _PesaCardFormState extends State<PesaCardForm> {
       );
 
   /// The saved cards and "Use another card" as one list, with the card
-  /// fields (or the email, for a saved card) under it in the same box.
+  /// fields (or the email, for a saved card) under it: in the same box, or
+  /// a box per row when the theme separates them.
   Widget _picker(TextStyle style) {
     final t = widget.theme;
     final selected = _c.savedCard;
     final cvvError = _errors[PesaCardField.cvv];
-    final rows = [
+    final another = (selected: selected == null, row: _anotherCardRow(style));
+    final saved = [
       for (final card in _c.savedCards)
+        (
+          selected: card.token == selected?.token,
+          row: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _savedCardRow(card, style),
+              if (cvvError != null && card.token == selected?.token) _inlineError(cvvError),
+            ],
+          ),
+        ),
+    ];
+    final rows = t.anotherCardFirst ? [another, ...saved] : [...saved, another];
+    final anotherIndex = t.anotherCardFirst ? 0 : rows.length - 1;
+    final fields = selected == null
+        ? [..._typedCardFields(style), if (widget.showSaveCardSwitch) _saveCardSwitch()]
+        : [if (widget.needsEmail) _emailField(style)];
+    final footer = AnimatedSize(
+      duration: _motion(200),
+      alignment: Alignment.topCenter,
+      child: fields.isEmpty
+          ? const SizedBox(width: double.infinity)
+          : Padding(
+              padding: t.separateRows ? const EdgeInsets.fromLTRB(16, 12, 16, 8) : const EdgeInsets.fromLTRB(16, 4, 16, 8),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: fields),
+            ),
+    );
+
+    if (!t.separateRows) {
+      return _box(
         Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _savedCardRow(card, style),
-            if (cvvError != null && card.token == selected?.token) _inlineError(cvvError),
+            for (final (i, entry) in rows.indexed) ...[
+              if (i > 0) _divider(),
+              entry.row,
+            ],
+            footer,
           ],
         ),
-      _anotherCardRow(style),
-    ];
-    final footer = selected == null
-        ? [..._typedCardFields(style), if (widget.showSaveCardSwitch) _saveCardSwitch()]
-        : [if (widget.needsEmail) _emailField(style)];
+      );
+    }
+
+    final gap = SizedBox(height: t.rowSpacing);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final (i, entry) in rows.indexed) ...[
+          if (i > 0) gap,
+          _box(entry.row, outline: entry.selected ? t.selectedRowBorder : null),
+          // The card fields sit right under "Use another card".
+          if (i == anotherIndex && selected == null && fields.isNotEmpty) ...[gap, _box(footer)],
+        ],
+        if (selected != null && fields.isNotEmpty) ...[gap, _box(footer)],
+      ],
+    );
+  }
+
+  /// The list's surface: one box around [child], outlined with [outline]
+  /// or the theme's border.
+  Widget _box(Widget child, {BorderSide? outline}) {
+    final t = widget.theme;
     final radius = BorderRadius.circular(t.listRadius ?? t.borderRadius);
+    final side = outline ?? (t.borderColor == null ? null : BorderSide(color: t.borderColor!));
     return DecoratedBox(
       decoration: BoxDecoration(
         color: t.focusFillColor,
         borderRadius: radius,
-        border: t.borderColor == null ? null : Border.all(color: t.borderColor!),
+        border: side == null ? null : Border.fromBorderSide(side),
       ),
-      child: ClipRRect(
-        borderRadius: radius,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            for (final (i, row) in rows.indexed) ...[
-              if (i > 0) _divider(),
-              row,
-            ],
-            AnimatedSize(
-              duration: _motion(200),
-              alignment: Alignment.topCenter,
-              child: footer.isEmpty
-                  ? const SizedBox(width: double.infinity)
-                  : Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-                      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: footer),
-                    ),
-            ),
-          ],
-        ),
-      ),
+      child: ClipRRect(borderRadius: radius, child: child),
     );
   }
 

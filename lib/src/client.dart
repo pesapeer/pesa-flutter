@@ -2,11 +2,12 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' show Locale;
 
+import 'package:flutter/widgets.dart' show GlobalKey, NavigatorState;
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import 'card.dart';
+import 'challenge.dart';
 import 'l10n/pesa_checkout_strings.dart';
 import 'models.dart';
 import 'pinning.dart';
@@ -20,11 +21,21 @@ class PesaCheckout {
   ///
   /// [locale] sets the language of [PesaCheckoutException.message]. When
   /// null, the SDK takes the session's `locale`, then the device's.
+  ///
+  /// [surface] is where the 3-D Secure challenge shows:
+  /// [PesaChallengeSurface.inApp] (the default) is a full-screen page inside
+  /// the app pushed on [navigatorKey]'s navigator, which is then required;
+  /// [PesaChallengeSurface.browser] is the system's in-app browser, or the
+  /// auth session [openBrowser] launches. [challenge] replaces both with a
+  /// [PesaChallengePresenter] of your own.
   PesaCheckout({
     String checkoutUrl = 'https://checkout.pesa.co',
     List<String> pins = const [],
     http.Client? httpClient,
+    PesaChallengeSurface surface = PesaChallengeSurface.inApp,
+    GlobalKey<NavigatorState>? navigatorKey,
     Future<bool> Function(Uri url)? openBrowser,
+    PesaChallengePresenter? challenge,
     Duration pollInterval = const Duration(milliseconds: 1500),
     int pollTries = 60,
     Duration challengeCeiling = const Duration(minutes: 5),
@@ -34,7 +45,8 @@ class PesaCheckout {
         _pollTries = pollTries,
         _challengeCeiling = challengeCeiling,
         _locale = locale,
-        _openBrowser = openBrowser ?? _launch,
+        _challenge = challenge ??
+            PesaChallengePresenter.of(surface, navigatorKey: navigatorKey, launch: openBrowser, locale: locale),
         _http = httpClient ??
             IOClient(pinnedHttpClient(host: Uri.parse(checkoutUrl).host, pins: pins));
 
@@ -43,7 +55,7 @@ class PesaCheckout {
   final Duration _pollInterval;
   final int _pollTries;
   final Duration _challengeCeiling;
-  final Future<bool> Function(Uri url) _openBrowser;
+  final PesaChallengePresenter _challenge;
   final Locale? _locale;
   String? _sessionLocale;
 
@@ -61,9 +73,6 @@ class PesaCheckout {
     return s;
   }
 
-  static Future<bool> _launch(Uri url) =>
-      launchUrl(url, mode: LaunchMode.inAppBrowserView);
-
   Uri _url(String intentId, [String suffix = '']) =>
       _base.replace(path: '${_base.path}/c/$intentId$suffix');
 
@@ -77,8 +86,8 @@ class PesaCheckout {
   }
 
   /// Charges [card] against the intent and follows it to an outcome: polls
-  /// the session, opens the 3-D Secure challenge in the system browser when
-  /// the issuer asks, and returns when the attempt is no longer pending.
+  /// the session, shows the 3-D Secure challenge when the issuer asks, and
+  /// returns when the attempt is no longer pending.
   ///
   /// [card] is cleared from this call's own copies once sent; clear the
   /// form's controllers yourself.
@@ -158,28 +167,34 @@ class PesaCheckout {
     var s = first;
     var tries = 0;
     var challengeOpened = false;
+    var challengeCancelled = false;
     DateTime? challengeStarted;
-    while (true) {
-      final a = s.attempt;
-      if (a == null || (!a.isPending && !a.requires3ds) || s.isClosed) {
-        return CheckoutResult(intentId: intentId, state: s.state, attempt: a);
-      }
-      if (a.requires3ds && a.challengeUrl != null && !challengeOpened) {
-        challengeOpened = true;
-        challengeStarted = DateTime.now();
-        if (!await _openBrowser(Uri.parse(a.challengeUrl!))) {
-          throw _fail('challenge_unavailable');
+    try {
+      while (true) {
+        final a = s.attempt;
+        if (a == null || (!a.isPending && !a.requires3ds) || s.isClosed) {
+          return CheckoutResult(intentId: intentId, state: s.state, attempt: a);
         }
+        if (challengeCancelled) throw _fail('challenge_cancelled');
+        if (a.requires3ds && a.challengeUrl != null && !challengeOpened) {
+          challengeOpened = true;
+          challengeStarted = DateTime.now();
+          final shown = await _challenge.open(
+            Uri.parse(a.challengeUrl!),
+            onCancelled: () => challengeCancelled = true,
+          );
+          if (!shown) throw _fail('challenge_unavailable');
+        }
+        tries++;
+        final overCeiling = challengeStarted == null
+            ? tries >= _pollTries
+            : DateTime.now().difference(challengeStarted) > _challengeCeiling;
+        if (overCeiling) throw _fail('timeout');
+        await Future<void>.delayed(_pollInterval);
+        s = await session(intentId, clientSecret);
       }
-      tries++;
-      final overCeiling = challengeStarted == null
-          ? tries >= _pollTries
-          : DateTime.now().difference(challengeStarted) > _challengeCeiling;
-      if (overCeiling) {
-        throw _fail('timeout');
-      }
-      await Future<void>.delayed(_pollInterval);
-      s = await session(intentId, clientSecret);
+    } finally {
+      if (challengeOpened) await _challenge.close();
     }
   }
 

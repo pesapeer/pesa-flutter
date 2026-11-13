@@ -15,6 +15,7 @@ const stringsZhHans = <String, String>{
   'saved.labelExpired': '{brand}，尾号 {last4}，已过期',
   'saved.useAnother': '使用其他卡',
   'saved.saveCard': '保存此卡，方便下次付款',
+  'challenge.title': '验证您的卡',
   'pay': '支付',
   'pay.amount': '支付 {amount}',
   'invalid.numberEmpty': '请输入卡号。',

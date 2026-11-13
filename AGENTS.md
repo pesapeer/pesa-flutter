@@ -6,9 +6,11 @@ Flutter app or that change this repository. Humans: read README.md first.
 ## What this package is
 
 - pub.dev package `pesa_checkout`. Native card fields for a Pesa intent.
-- 3-D Secure in Custom Tabs (Android) or `SFSafariViewController` (iOS)
-  through `url_launcher`. SPKI-pinned TLS to `checkout.pesa.co`.
-- No web views. Android minSdk 24. iOS 15.
+- 3-D Secure in a full-screen page inside the app
+  (`PesaChallengeSurface.inApp`, the default, needs `navigatorKey`) or the
+  system's in-app browser (`.browser`, `url_launcher`). SPKI-pinned TLS to
+  `checkout.pesa.co`.
+- The card never touches a web view. Android minSdk 24. iOS 15.
 
 ## Hard rules
 

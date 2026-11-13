@@ -15,6 +15,7 @@ const stringsFr = <String, String>{
   'saved.labelExpired': '{brand} se terminant par {last4}, expirée',
   'saved.useAnother': 'Utiliser une autre carte',
   'saved.saveCard': 'Enregistrer cette carte pour la prochaine fois',
+  'challenge.title': 'Vérifiez votre carte',
   'pay': 'Payer',
   'pay.amount': 'Payer {amount}',
   'invalid.numberEmpty': 'Saisissez le numéro de carte.',

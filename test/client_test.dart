@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -53,10 +54,35 @@ class FakeEdge {
       });
 }
 
-PesaCheckout checkout(FakeEdge edge, {Future<bool> Function(Uri)? openBrowser, int tries = 60}) => PesaCheckout(
+/// A presenter that records what it was asked to show and when it was
+/// closed, and can cancel the challenge as a cardholder would.
+class FakePresenter implements PesaChallengePresenter {
+  FakePresenter({this.shows = true});
+
+  final bool shows;
+  final opened = <Uri>[];
+  final shown = Completer<void>();
+  var closed = 0;
+  void Function()? _onCancelled;
+
+  @override
+  Future<bool> open(Uri url, {required void Function() onCancelled}) async {
+    opened.add(url);
+    _onCancelled = onCancelled;
+    shown.complete();
+    return shows;
+  }
+
+  @override
+  Future<void> close() async => closed++;
+
+  void cancel() => _onCancelled!();
+}
+
+PesaCheckout checkout(FakeEdge edge, {PesaChallengePresenter? challenge, int tries = 60}) => PesaCheckout(
       checkoutUrl: 'https://checkout.test',
       httpClient: edge.client(),
-      openBrowser: openBrowser ?? (_) async => true,
+      challenge: challenge ?? FakePresenter(),
       pollInterval: Duration.zero,
       pollTries: tries,
       challengeCeiling: const Duration(seconds: 2),
@@ -121,16 +147,13 @@ void main() {
   });
 
   test('saved card: posts the token and code, no card number, and follows 3DS', () async {
-    final opened = <Uri>[];
+    final presenter = FakePresenter();
     final edge = FakeEdge([
       session(attempt: {'state': 'pending'}),
       session(attempt: {'state': 'requires_3ds', 'challengeUrl': 'https://checkout.test/c/$intent/challenge?t=x'}),
       session(state: 'settled', attempt: {'state': 'captured', 'card': {'brand': 'visa', 'last4': '4242'}}),
     ]);
-    final r = await checkout(edge, openBrowser: (u) async {
-      opened.add(u);
-      return true;
-    }).payWithSavedCard(intent, secret, 'tok_1', securityCode: '123');
+    final r = await checkout(edge, challenge: presenter).payWithSavedCard(intent, secret, 'tok_1', securityCode: '123');
     expect(r.isSuccess, isTrue);
     expect(r.attempt?.last4, '4242');
     expect(opened, hasLength(1));
@@ -156,8 +179,8 @@ void main() {
     );
   });
 
-  test('3DS: opens the challenge once, keeps polling, ends captured', () async {
-    final opened = <Uri>[];
+  test('3DS: shows the challenge once, keeps polling, closes it, ends captured', () async {
+    final presenter = FakePresenter();
     final edge = FakeEdge([
       session(attempt: {'state': 'pending'}),
       session(attempt: {'state': 'requires_3ds', 'challengeUrl': 'https://checkout.test/c/$intent/challenge?t=x'}),
@@ -165,12 +188,57 @@ void main() {
       session(attempt: {'state': 'pending'}),
       session(state: 'settled', attempt: {'state': 'captured'}),
     ]);
-    final r = await checkout(edge, openBrowser: (u) async {
-      opened.add(u);
-      return true;
-    }).payWithCard(intent, secret, card());
+    final r = await checkout(edge, challenge: presenter).payWithCard(intent, secret, card());
     expect(r.isSuccess, isTrue);
-    expect(opened, [Uri.parse('https://checkout.test/c/$intent/challenge?t=x')]);
+    expect(presenter.opened, [Uri.parse('https://checkout.test/c/$intent/challenge?t=x')]);
+    expect(presenter.closed, 1);
+  });
+
+  test('3DS: a challenge the cardholder dismisses is challenge_cancelled', () async {
+    final presenter = FakePresenter();
+    final edge = FakeEdge([
+      session(attempt: {'state': 'requires_3ds', 'challengeUrl': 'https://checkout.test/c/$intent/challenge?t=x'}),
+    ]);
+    final paying = checkout(edge, challenge: presenter).payWithCard(intent, secret, card());
+    await presenter.shown.future;
+    presenter.cancel();
+    await expectLater(
+      paying,
+      throwsA(isA<PesaCheckoutException>().having((e) => e.code, 'code', 'challenge_cancelled')),
+    );
+    expect(presenter.closed, 1);
+  });
+
+  test('3DS: the challenge is closed when the poll times out', () async {
+    final presenter = FakePresenter();
+    final edge = FakeEdge([
+      session(attempt: {'state': 'requires_3ds', 'challengeUrl': 'https://checkout.test/c/$intent/challenge?t=x'}),
+    ]);
+    await expectLater(
+      checkout(edge, challenge: presenter).payWithCard(intent, secret, card()),
+      throwsA(isA<PesaCheckoutException>().having((e) => e.code, 'code', 'timeout')),
+    );
+    expect(presenter.closed, 1);
+  });
+
+  test('surface: browser opens the challenge with openBrowser', () async {
+    final opened = <Uri>[];
+    final edge = FakeEdge([
+      session(attempt: {'state': 'requires_3ds', 'challengeUrl': 'https://checkout.test/c/$intent/challenge?t=x'}),
+      session(state: 'settled', attempt: {'state': 'captured'}),
+    ]);
+    final r = await PesaCheckout(
+      checkoutUrl: 'https://checkout.test',
+      httpClient: edge.client(),
+      surface: PesaChallengeSurface.browser,
+      openBrowser: (u) async {
+        opened.add(u);
+        return true;
+      },
+      pollInterval: Duration.zero,
+    ).payWithCard(intent, secret, card());
+    expect(r.isSuccess, isTrue);
+    expect(opened, hasLength(1));
   });
 
   test('a decline leaves the intent open with the reason', () async {
@@ -207,12 +275,19 @@ void main() {
     );
   });
 
+  test('surface: inApp without a navigator is refused at construction', () {
+    expect(
+      () => PesaCheckout(checkoutUrl: 'https://checkout.test', httpClient: FakeEdge([]).client()),
+      throwsArgumentError,
+    );
+  });
+
   test('a challenge that cannot be opened is an error', () async {
     final edge = FakeEdge([
       session(attempt: {'state': 'requires_3ds', 'challengeUrl': 'https://checkout.test/c/$intent/challenge?t=x'}),
     ]);
     await expectLater(
-      checkout(edge, openBrowser: (_) async => false).payWithCard(intent, secret, card()),
+      checkout(edge, challenge: FakePresenter(shows: false)).payWithCard(intent, secret, card()),
       throwsA(isA<PesaCheckoutException>().having((e) => e.code, 'code', 'challenge_unavailable')),
     );
   });

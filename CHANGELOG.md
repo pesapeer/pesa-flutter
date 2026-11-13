@@ -1,3 +1,37 @@
+## Unreleased
+
+- `PesaCardTheme` can restyle the saved-card list without redrawing it:
+  `separateRows` and `rowSpacing` (a box per row, the card fields in their
+  own box under "Use another card"), `selectedRowBorder`, `brandChip`,
+  `anotherCardFirst`, `anotherCardSubtitle` and `anotherCardLeading`. The
+  defaults keep the list as it was.
+
+- `CardBrandMark` is exported, for showing the card a payment was made
+  with outside the form.
+
+- Fix: the in-app 3-D Secure page closed itself as soon as the issuer's
+  page opened an iframe (`about:blank`, `about:srcdoc`, `data:`), leaving
+  the payment pending until the poll timed out. Only the return page, or
+  the top page leaving `http(s)`, ends the challenge now.
+
+## 0.4.0
+
+- 3-D Secure runs in a full-screen page inside the app by default.
+  `PesaCheckout` takes `surface` (`PesaChallengeSurface.inApp`, the
+  default, or `.browser`) and, for `inApp`, `navigatorKey`; the SDK pushes
+  `PesaChallengePage` on it when the issuer asks and pops it when the
+  customer is sent back, when the attempt settles, or when they close it
+  (`challenge_cancelled`). The customer no longer leaves the app, and the
+  return page's bounce to your scheme is no longer needed for cards.
+  `inApp` without a `navigatorKey` is an `ArgumentError`.
+- `PesaChallengePresenter`: where the challenge shows. `of(surface, …)`,
+  `PesaWebViewChallenge`, `PesaBrowserChallenge` (the system's in-app
+  browser, or an auth session through `launch`), or your own as
+  `challenge:`.
+- `openBrowser` now applies with `surface: PesaChallengeSurface.browser`.
+- New dependency: `webview_flutter`.
+- New string `challenge.title`.
+
 ## 0.3.0
 
 - Language: the SDK shows its text in `en`, `fr`, `fr-CA` and `zh-Hans`.

@@ -5,10 +5,10 @@
 
 Card payments on a Pesa intent for Flutter apps.
 
-- Native card fields. No web views.
+- Native card fields. The card never touches a web view.
 - The card number goes from the field to `checkout.pesa.co` over pinned
   TLS. Your app code never holds a PAN.
-- 3-D Secure runs in the system browser.
+- 3-D Secure runs in a full-screen page inside the app. The customer does not leave.
 
 Other platforms: [pesa-ios](https://github.com/pesapeer/pesa-ios),
 [pesa-kotlin](https://github.com/pesapeer/pesa-kotlin),
@@ -22,20 +22,22 @@ Other platforms: [pesa-ios](https://github.com/pesapeer/pesa-ios),
    Keep `clientSecret` out of logs.
 3. The app shows `PesaCardForm` inside `PesaSecureScreen`. Then it calls
    `PesaCheckout.payWithCard`.
-4. The SDK posts the card, polls the result, and opens the 3-D Secure
-   challenge in the browser when the issuer asks. It returns a
-   `CheckoutResult` when the attempt is no longer pending.
+4. The SDK posts the card, polls the result, and shows the 3-D Secure
+   challenge when the issuer asks. It returns a `CheckoutResult` when the
+   attempt is no longer pending.
 
-   Pass `openBrowser` to `PesaCheckout` and open the challenge in an auth
-   session (`flutter_web_auth_2`, callback scheme = your app's scheme).
-   When the challenge is done the checkout sends the browser to your
-   `returnUrl`, whose page redirects to your app's custom scheme; an auth
-   session catches that and closes itself. The default, a plain in-app
-   browser, does not: iOS will not open your app from a script redirect,
-   and the customer is left on a web page. Throw
-   `PesaCheckoutException('challenge_cancelled', …)` from `openBrowser`
-   when the customer closes the session, and return `false` when it could
-   not be opened at all.
+   `surface` picks where. `PesaChallengeSurface.inApp`, the default, is a
+   full-screen page inside the app: give `PesaCheckout` your app's
+   `navigatorKey`, and the SDK pushes the page when the issuer asks and
+   pops it when the issuer sends the customer back or the attempt settles.
+   The customer never leaves the app. A customer who closes the page gets
+   `PesaCheckoutException('challenge_cancelled', …)`.
+
+   `PesaChallengeSurface.browser` is the system's in-app browser, or the
+   auth session your `openBrowser` launches; the checkout's return page
+   then sends the browser to your `returnUrl`. Pass `challenge:` with your
+   own `PesaChallengePresenter` to show it anywhere else; `PesaChallengePage`
+   is the page itself, for apps that push it on their own navigator.
 5. **Your server trusts only the gateway.** It fulfils the order on
    `intent.state_changed` with `state: settled` (or `authorized` for
    manual capture), or on `GET /v1/intents/{reference}`. The result the
@@ -261,8 +263,8 @@ sit on a small white chip so they read on a dark surface too.
 | `transport` | Network error. |
 | `pin_mismatch` | The server key did not match a pin. The SDK sent no request. |
 | `timeout` | No final state before the poll limit. |
-| `challenge_unavailable` | `openBrowser` returned `false`: the 3-D Secure page could not be opened. |
-| `challenge_cancelled` | Your `openBrowser` threw it: the customer closed the 3-D Secure session. |
+| `challenge_unavailable` | The 3-D Secure page could not be shown (no navigator, or the presenter returned `false`). |
+| `challenge_cancelled` | The customer closed the 3-D Secure page before it finished. |
 
 ## Certificate pins
 

@@ -102,6 +102,9 @@ class PesaCheckoutStrings {
 
   String get pay => _get('pay');
 
+  /// The title of the in-app 3-D Secure challenge page.
+  String get challengeTitle => _get('challenge.title');
+
   /// "Pay £25.00"; [amount] is a decimal string such as the session's.
   String payAmount(String amount, String currency) => _get('pay.amount', {'amount': money(amount, currency)});
 

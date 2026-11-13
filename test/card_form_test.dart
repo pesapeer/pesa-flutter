@@ -9,10 +9,11 @@ void main() {
   setUp(() => controller = PesaCardFormController());
   tearDown(() => controller.dispose());
 
-  Future<void> pump(WidgetTester t, {bool needsEmail = false}) => t.pumpWidget(MaterialApp(
+  Future<void> pump(WidgetTester t, {bool needsEmail = false, PesaCardTheme theme = const PesaCardTheme()}) =>
+      t.pumpWidget(MaterialApp(
         home: Scaffold(
           body: Column(children: [
-            PesaCardForm(controller: controller, needsEmail: needsEmail),
+            PesaCardForm(controller: controller, needsEmail: needsEmail, theme: theme),
             PesaPayButton(controller: controller, label: 'Pay', onPressed: () {}),
           ]),
         ),
@@ -162,6 +163,7 @@ void main() {
     WidgetTester t, {
     List<SavedCard> cards = const [SavedCard(token: 'tok_1', brand: 'visa', last4: '4242', expiry: '12/2030')],
     SavedCardSecurityCode code = SavedCardSecurityCode.never,
+    PesaCardTheme theme = const PesaCardTheme(),
   }) {
     controller.useSession(CheckoutSession(
       intentId: 'int_1',
@@ -172,8 +174,56 @@ void main() {
       savedCards: cards,
       savedCardSecurityCode: code,
     ));
-    return pump(t);
+    return pump(t, theme: theme);
   }
+
+  testWidgets('theme: another card first, with a subtitle and its own mark', (t) async {
+    await pumpSaved(
+      t,
+      theme: const PesaCardTheme(
+        anotherCardFirst: true,
+        anotherCardSubtitle: 'Add money with a new card',
+        anotherCardLeading: Icon(Icons.add_circle, key: Key('badge')),
+      ),
+    );
+    expect(find.text('Add money with a new card'), findsOneWidget);
+    expect(find.byKey(const Key('badge')), findsOneWidget);
+    expect(
+      t.getTopLeft(find.text('Use another card')).dy,
+      lessThan(t.getTopLeft(find.text('•••• 4242')).dy),
+    );
+    expect(controller.savedCard?.token, 'tok_1');
+  });
+
+  testWidgets('theme: separate rows outline the selected one and box the fields', (t) async {
+    const outline = BorderSide(color: Color(0xFF111114), width: 1.5);
+    Border? borderOf(Finder row) =>
+        (t.widget<DecoratedBox>(find.ancestor(of: row, matching: find.byType(DecoratedBox)).first).decoration
+                as BoxDecoration)
+            .border as Border?;
+
+    await pumpSaved(
+      t,
+      theme: const PesaCardTheme(separateRows: true, selectedRowBorder: outline, borderColor: Color(0xFFE3E3EA)),
+    );
+    expect(borderOf(find.text('•••• 4242'))?.top, outline);
+    expect(borderOf(find.text('Use another card'))?.top.color, const Color(0xFFE3E3EA));
+    expect(find.byType(TextField), findsNothing);
+
+    await t.tap(find.text('Use another card'));
+    await settle(t);
+    expect(controller.savedCard, isNull);
+    expect(borderOf(find.text('Use another card'))?.top, outline);
+    expect(borderOf(find.text('•••• 4242'))?.top.color, const Color(0xFFE3E3EA));
+    expect(find.byType(TextField), findsNWidgets(4));
+  });
+
+  testWidgets('theme: the brand shows without its chip', (t) async {
+    await pumpSaved(t, theme: const PesaCardTheme(brandChip: false));
+    final mark = find.byType(CardBrandMark);
+    expect(mark, findsOneWidget);
+    expect(find.ancestor(of: mark, matching: find.byType(FittedBox)), findsNothing);
+  });
 
   testWidgets('saved cards and another card are one list', (t) async {
     await pumpSaved(t);
