@@ -30,7 +30,10 @@ Other platforms: [pesa-ios](https://github.com/pesapeer/pesa-ios),
    full-screen page inside the app: give `PesaCheckout` your app's
    `navigatorKey`, and the SDK pushes the page when the issuer asks and
    pops it when the issuer sends the customer back or the attempt settles.
-   The customer never leaves the app. A customer who closes the page gets
+   The customer never leaves the app. The page has a close button and no
+   title; for a title, pass
+   `challenge: PesaWebViewChallenge(navigatorKey: …, title: '…')`. Closing
+   asks "Cancel this payment?" first; a customer who confirms gets
    `PesaCheckoutException('challenge_cancelled', …)`.
 
    `PesaChallengeSurface.browser` is the system's in-app browser, or the

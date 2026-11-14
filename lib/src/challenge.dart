@@ -57,13 +57,18 @@ abstract class PesaChallengePresenter {
 ///
 /// The page is opened on [navigatorKey]'s navigator and popped when the
 /// issuer sends the cardholder back to the checkout, when the attempt
-/// settles, or when the cardholder taps close. Only `http(s)` loads; the
-/// return page's bounce to the app's own scheme is where the page ends.
+/// settles, or when the cardholder closes it and confirms. Only `http(s)`
+/// loads; the return page's bounce to the app's own scheme is where the
+/// page ends.
 class PesaWebViewChallenge implements PesaChallengePresenter {
-  PesaWebViewChallenge({required this.navigatorKey, this.locale});
+  PesaWebViewChallenge({required this.navigatorKey, this.locale, this.title});
 
   final GlobalKey<NavigatorState> navigatorKey;
   final Locale? locale;
+
+  /// A title for the page's bar. None by default: the bank's page has its
+  /// own heading.
+  final String? title;
 
   _ChallengeRoute? _route;
 
@@ -72,7 +77,7 @@ class PesaWebViewChallenge implements PesaChallengePresenter {
     final navigator = navigatorKey.currentState;
     if (navigator == null || !url.isScheme('https')) return false;
     await close();
-    final route = _ChallengeRoute(url: url, locale: locale);
+    final route = _ChallengeRoute(url: url, locale: locale, title: title);
     _route = route;
     unawaited(navigator.push<void>(route).then((_) {
       if (identical(_route, route)) _route = null;
@@ -141,10 +146,10 @@ ChallengeNavigation challengeNavigation(Uri url, {required bool isMainFrame, req
 }
 
 class _ChallengeRoute extends MaterialPageRoute<void> {
-  _ChallengeRoute({required Uri url, Locale? locale})
+  _ChallengeRoute({required Uri url, Locale? locale, String? title})
       : super(
           fullscreenDialog: true,
-          builder: (_) => PesaChallengePage(url: url, locale: locale),
+          builder: (_) => PesaChallengePage(url: url, locale: locale, title: title),
         );
 
   /// False once the checkout, not the cardholder, ended the page.
@@ -154,12 +159,19 @@ class _ChallengeRoute extends MaterialPageRoute<void> {
 /// The full-screen page that hosts the challenge. [PesaWebViewChallenge]
 /// pushes it; apps with their own navigation can push it themselves and
 /// pop it when the attempt settles.
+///
+/// The bar holds only a close button, which asks before it cancels the
+/// payment. Until the bank's page has loaded the page says it is
+/// connecting; after that everything on it is the bank's.
 class PesaChallengePage extends StatefulWidget {
-  const PesaChallengePage({super.key, required this.url, this.locale});
+  const PesaChallengePage({super.key, required this.url, this.locale, this.title});
 
   /// The attempt's `challengeUrl`.
   final Uri url;
   final Locale? locale;
+
+  /// A title for the bar; none when null.
+  final String? title;
 
   @override
   State<PesaChallengePage> createState() => _PesaChallengePageState();
@@ -169,6 +181,7 @@ class _PesaChallengePageState extends State<PesaChallengePage> {
   late final WebViewController _controller;
   late final Uri _returnUrl;
   var _loading = true;
+  var _connecting = true;
   var _done = false;
 
   @override
@@ -182,7 +195,7 @@ class _PesaChallengePageState extends State<PesaChallengePage> {
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setNavigationDelegate(NavigationDelegate(
         onNavigationRequest: _decide,
-        onPageFinished: (_) => _setLoading(false),
+        onPageFinished: (_) => _loaded(),
         onPageStarted: (_) => _setLoading(true),
       ))
       ..loadRequest(widget.url);
@@ -214,21 +227,118 @@ class _PesaChallengePageState extends State<PesaChallengePage> {
     if (mounted && _loading != loading) setState(() => _loading = loading);
   }
 
+  void _loaded() {
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      _connecting = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => ChallengeChrome(
+        strings: PesaCheckoutStrings.of(context, locale: widget.locale),
+        title: widget.title,
+        loading: _loading,
+        connecting: _connecting,
+        onCancel: () => Navigator.of(context).pop(),
+        child: WebViewWidget(controller: _controller),
+      );
+}
+
+/// Everything on the challenge page that is not the bank's: the bar, the
+/// line shown while connecting, and the question asked before cancelling.
+///
+/// The question is drawn on the page, not pushed as a dialog, so it goes
+/// with the page when the attempt settles while it is up.
+@visibleForTesting
+class ChallengeChrome extends StatefulWidget {
+  const ChallengeChrome({
+    super.key,
+    required this.strings,
+    required this.loading,
+    required this.connecting,
+    required this.onCancel,
+    required this.child,
+    this.title,
+  });
+
+  final PesaCheckoutStrings strings;
+  final String? title;
+
+  /// A page is loading: the bar shows progress.
+  final bool loading;
+
+  /// The bank's first page has not loaded yet.
+  final bool connecting;
+
+  /// The cardholder closed the page and confirmed.
+  final VoidCallback onCancel;
+  final Widget child;
+
+  @override
+  State<ChallengeChrome> createState() => _ChallengeChromeState();
+}
+
+class _ChallengeChromeState extends State<ChallengeChrome> {
+  var _asking = false;
+
+  void _ask(bool asking) => setState(() => _asking = asking);
+
   @override
   Widget build(BuildContext context) {
-    final strings = PesaCheckoutStrings.of(context, locale: widget.locale);
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(strings.challengeTitle),
-        leading: CloseButton(onPressed: () => Navigator.of(context).pop()),
-        bottom: _loading
-            ? const PreferredSize(
-                preferredSize: Size.fromHeight(2),
-                child: LinearProgressIndicator(minHeight: 2),
-              )
-            : null,
+    final strings = widget.strings;
+    final title = widget.title;
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _ask(true);
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          automaticallyImplyLeading: false,
+          title: title == null ? null : Text(title),
+          leading: IconButton(
+            icon: const Icon(Icons.close),
+            tooltip: strings.challengeCancel,
+            onPressed: () => _ask(true),
+          ),
+          bottom: widget.loading
+              ? const PreferredSize(
+                  preferredSize: Size.fromHeight(2),
+                  child: LinearProgressIndicator(minHeight: 2),
+                )
+              : null,
+        ),
+        body: SafeArea(
+          child: Semantics(
+            namesRoute: title == null,
+            label: title == null ? strings.challengeLabel : null,
+            explicitChildNodes: true,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                widget.child,
+                if (widget.connecting)
+                  ColoredBox(
+                    color: Theme.of(context).scaffoldBackgroundColor,
+                    child: Center(child: Text(strings.challengeConnecting)),
+                  ),
+                if (_asking) ...[
+                  const ModalBarrier(dismissible: false, color: Colors.black54),
+                  AlertDialog(
+                    title: Text(strings.challengeCancelQuestion),
+                    actions: [
+                      TextButton(onPressed: () => _ask(false), child: Text(strings.challengeKeepGoing)),
+                      TextButton(onPressed: widget.onCancel, child: Text(strings.challengeCancel)),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
       ),
-      body: SafeArea(child: WebViewWidget(controller: _controller)),
     );
   }
 }

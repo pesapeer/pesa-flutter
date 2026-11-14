@@ -102,8 +102,18 @@ class PesaCheckoutStrings {
 
   String get pay => _get('pay');
 
-  /// The title of the in-app 3-D Secure challenge page.
-  String get challengeTitle => _get('challenge.title');
+  /// What a screen reader calls the in-app 3-D Secure page, which has no
+  /// title of its own.
+  String get challengeLabel => _get('challenge.label');
+
+  /// Shown on the 3-D Secure page until the bank's page has loaded.
+  String get challengeConnecting => _get('challenge.connecting');
+
+  /// Asked when the cardholder closes the 3-D Secure page, with its two
+  /// answers.
+  String get challengeCancelQuestion => _get('challenge.cancelQuestion');
+  String get challengeCancel => _get('challenge.cancel');
+  String get challengeKeepGoing => _get('challenge.keepGoing');
 
   /// "Pay £25.00"; [amount] is a decimal string such as the session's.
   String payAmount(String amount, String currency) => _get('pay.amount', {'amount': money(amount, currency)});

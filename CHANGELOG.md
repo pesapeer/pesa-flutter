@@ -1,5 +1,14 @@
 ## Unreleased
 
+- The in-app 3-D Secure page no longer has a title: the bank's page has
+  its own heading. It shows "Connecting to your bank…" until that page
+  has loaded, and its close button (and the system back button) asks
+  "Cancel this payment?" before it cancels. Pass `title` to
+  `PesaWebViewChallenge` or `PesaChallengePage` for a title of your own.
+  `PesaCheckoutStrings.challengeTitle` is gone; `challengeLabel`,
+  `challengeConnecting`, `challengeCancelQuestion`, `challengeCancel` and
+  `challengeKeepGoing` are new.
+
 - `PesaCardTheme` can restyle the saved-card list without redrawing it:
   `separateRows` and `rowSpacing` (a box per row, the card fields in their
   own box under "Use another card"), `selectedRowBorder`, `brandChip`,
